@@ -611,8 +611,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }) {
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+      child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
           gradient: isSelected ? AppTheme.primaryGradient : null,
@@ -625,7 +624,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: AppTheme.primaryPurple.withValues(alpha: 0.3),
+                    color: AppTheme.primaryOrange.withValues(alpha: 0.3),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -729,8 +728,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }) {
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+      child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [Color(gradientColors[0]), Color(gradientColors[1])],

@@ -1,8 +1,10 @@
 // lib/blocs/auth_bloc.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../models/user.dart' as app_user;
 import '../services/auth_service.dart';
+import '../services/device_service.dart';
 
 // Events
 abstract class AuthEvent extends Equatable {
@@ -119,6 +121,14 @@ class OTPSent extends AuthState {
   List<Object?> get props => [emailOrPhone, isEmail];
 }
 
+class MagicLinkSent extends AuthState {
+  final String email;
+  const MagicLinkSent({required this.email});
+  
+  @override
+  List<Object?> get props => [email];
+}
+
 class Authenticated extends AuthState {
   final app_user.User user;
   const Authenticated(this.user);
@@ -147,8 +157,11 @@ class AuthError extends AuthState {
 // BLoC
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
+  final DeviceService? _deviceService;
   
-  AuthBloc(this._authService) : super(AuthInitial()) {
+  AuthBloc(this._authService, {DeviceService? deviceService}) 
+      : _deviceService = deviceService,
+        super(AuthInitial()) {
     on<AppStarted>(_onAppStarted);
     on<SignInWithEmailRequested>(_onSignInWithEmail);
     on<VerifyEmailOTPRequested>(_onVerifyEmailOTP);
@@ -166,6 +179,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     });
   }
   
+  /// Register device for push notifications
+  Future<void> _registerDevice() async {
+    if (_deviceService != null && _authService.currentAuthUser != null) {
+      try {
+        await _deviceService!.registerDevice(_authService.currentAuthUser!.id);
+      } catch (e) {
+        debugPrint('Failed to register device: $e');
+      }
+    }
+  }
+  
   Future<void> _onAppStarted(AppStarted event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
     
@@ -174,6 +198,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         final user = await _authService.getUserProfile();
         if (user != null) {
           if (user.isProfileComplete) {
+            await _registerDevice();  // Register device on successful auth
             emit(Authenticated(user));
           } else {
             emit(NeedsProfileCompletion(
@@ -202,9 +227,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
     
     try {
-      await _authService.signInWithEmailOTP(event.email);
-      emit(OTPSent(emailOrPhone: event.email, isEmail: true));
+      await _authService.signInWithEmailMagicLink(event.email);
+      debugPrint('Magic link sent successfully, emitting MagicLinkSent state');
+      emit(MagicLinkSent(email: event.email));
     } catch (e) {
+      debugPrint('Magic link error: $e');
       emit(AuthError(e.toString()));
     }
   }

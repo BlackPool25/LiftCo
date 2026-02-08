@@ -29,17 +29,21 @@ class AuthService {
   // Auth state stream
   Stream<AuthState> get authStateChanges => _supabase.auth.onAuthStateChange;
   
-  /// Sign in with email OTP
-  Future<void> signInWithEmailOTP(String email) async {
+  /// Sign in with email Magic Link
+  Future<void> signInWithEmailMagicLink(String email) async {
     try {
+      // Use magic link instead of OTP
       await _supabase.auth.signInWithOtp(
         email: email,
         shouldCreateUser: true,
+        emailRedirectTo: kIsWeb 
+            ? 'http://localhost:3000' 
+            : 'com.liftco.liftco://login-callback/',
       );
     } on AuthException catch (e) {
       throw AuthException(e.message, code: 'auth_error');
     } catch (e) {
-      throw AuthException('Failed to send OTP: $e');
+      throw AuthException('Failed to send magic link: $e');
     }
   }
 

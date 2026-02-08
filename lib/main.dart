@@ -1,15 +1,18 @@
 // lib/main.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'blocs/auth_bloc.dart' as app_bloc;
 import 'config/theme.dart';
 import 'screens/main_shell.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_setup_screen.dart';
 import 'services/auth_service.dart';
+import 'services/device_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,18 +32,35 @@ void main() async {
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
   
-  runApp(const LiftCoApp());
+  // Initialize Firebase (only on mobile/web, not during tests)
+  DeviceService? deviceService;
+  if (!kIsWeb) {
+    try {
+      await Firebase.initializeApp();
+      deviceService = DeviceService(Supabase.instance.client);
+      debugPrint('Firebase initialized successfully');
+    } catch (e) {
+      debugPrint('Firebase initialization skipped or failed: $e');
+    }
+  }
+  
+  runApp(LiftCoApp(deviceService: deviceService));
 }
 
 class LiftCoApp extends StatelessWidget {
-  const LiftCoApp({super.key});
+  final DeviceService? deviceService;
+  
+  const LiftCoApp({super.key, this.deviceService});
   
   @override
   Widget build(BuildContext context) {
     return RepositoryProvider(
       create: (context) => AuthService(Supabase.instance.client),
       child: BlocProvider(
-        create: (context) => app_bloc.AuthBloc(context.read<AuthService>())..add(app_bloc.AppStarted()),
+        create: (context) => app_bloc.AuthBloc(
+          context.read<AuthService>(),
+          deviceService: deviceService,
+        )..add(app_bloc.AppStarted()),
         child: MaterialApp(
           title: 'LiftCo',
           debugShowCheckedModeBanner: false,

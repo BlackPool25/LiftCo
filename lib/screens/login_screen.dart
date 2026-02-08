@@ -28,6 +28,7 @@ class _LoginScreenState extends State<LoginScreen>
   
   bool _isEmail = true;
   bool _otpSent = false;
+  bool _magicLinkSent = false;
   String _contactInfo = '';
 
   @override
@@ -50,8 +51,11 @@ class _LoginScreenState extends State<LoginScreen>
         _showError('Please enter a valid email');
         return;
       }
+      setState(() {
+        _contactInfo = email;
+        _magicLinkSent = true;  // Show confirmation UI immediately
+      });
       context.read<AuthBloc>().add(SignInWithEmailRequested(email));
-      setState(() => _contactInfo = email);
     } else {
       String phone = _phoneController.text.trim();
       if (phone.isEmpty || phone.length < 10) {
@@ -107,11 +111,21 @@ class _LoginScreenState extends State<LoginScreen>
           if (state is OTPSent) {
             setState(() {
               _otpSent = true;
+              _magicLinkSent = false;
               _isEmail = state.isEmail;
+            });
+          } else if (state is MagicLinkSent) {
+            setState(() {
+              _magicLinkSent = true;
+              _otpSent = false;
+              _contactInfo = state.email;
             });
           } else if (state is AuthError) {
             _showError(state.message);
-            setState(() => _otpSent = false);
+            setState(() {
+              _otpSent = false;
+              _magicLinkSent = false;
+            });
           }
         },
         builder: (context, state) {
@@ -124,10 +138,17 @@ class _LoginScreenState extends State<LoginScreen>
               SafeArea(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 60),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: MediaQuery.of(context).size.height - 
+                                 MediaQuery.of(context).padding.top - 
+                                 MediaQuery.of(context).padding.bottom,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(height: MediaQuery.of(context).size.height * 0.04),
                       
                       // Logo & Title
                       _buildHeader()
@@ -146,20 +167,22 @@ class _LoginScreenState extends State<LoginScreen>
                                 child: Padding(
                                   padding: EdgeInsets.all(40),
                                   child: CircularProgressIndicator(
-                                    color: AppTheme.primaryPurple,
+                                    color: AppTheme.primaryOrange,
                                   ),
                                 ),
                               )
-                            : _otpSent
-                                ? _buildOTPContent()
-                                : _buildLoginContent(),
+                            : _magicLinkSent
+                                ? _buildMagicLinkSentContent()
+                                : _otpSent
+                                    ? _buildOTPContent()
+                                    : _buildLoginContent(),
                       ).animate().fadeIn(delay: 200.ms, duration: 500.ms)
                           .slideY(begin: 0.1, end: 0),
                       
                       const SizedBox(height: 32),
                       
                       // Terms text
-                      if (!_otpSent)
+                      if (!_otpSent && !_magicLinkSent)
                         Center(
                           child: Text(
                             'By continuing, you agree to our Terms & Privacy Policy',
@@ -168,8 +191,9 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ).animate().fadeIn(delay: 400.ms),
                       
-                      const SizedBox(height: 40),
-                    ],
+                      SizedBox(height: MediaQuery.of(context).size.height * 0.03),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -288,43 +312,41 @@ class _LoginScreenState extends State<LoginScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Toggle between email and phone
-        Row(
-          children: [
-            _buildToggleButton('Email', _isEmail, () {
-              setState(() => _isEmail = true);
-            }),
-            const SizedBox(width: 12),
-            _buildToggleButton('Phone', !_isEmail, () {
-              setState(() => _isEmail = false);
-            }),
-          ],
-        ),
+        // Toggle between email and phone - with smooth sliding indicator
+        _buildSmoothToggle(),
         const SizedBox(height: 24),
 
-        // Input field
-        if (_isEmail)
-          TextField(
-            controller: _emailController,
-            keyboardType: TextInputType.emailAddress,
-            style: const TextStyle(color: AppTheme.textPrimary),
-            decoration: const InputDecoration(
-              hintText: 'Enter your email',
-              prefixIcon: Icon(Icons.email_outlined, color: AppTheme.textMuted),
-            ),
-          )
-        else
-          TextField(
-            controller: _phoneController,
-            keyboardType: TextInputType.phone,
-            style: const TextStyle(color: AppTheme.textPrimary),
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              hintText: 'Enter your phone number',
-              prefixIcon: Icon(Icons.phone_outlined, color: AppTheme.textMuted),
-              prefixText: '+1 ',
-            ),
-          ),
+        // Input field - Use AnimatedSwitcher for smooth transitions
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: _isEmail
+              ? TextField(
+                  key: const ValueKey('email'),
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.done,
+                  autocorrect: false,
+                  enableSuggestions: true,
+                  style: const TextStyle(color: AppTheme.textPrimary),
+                  decoration: const InputDecoration(
+                    hintText: 'Enter your email',
+                    prefixIcon: Icon(Icons.email_outlined, color: AppTheme.textMuted),
+                  ),
+                )
+              : TextField(
+                  key: const ValueKey('phone'),
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.done,
+                  style: const TextStyle(color: AppTheme.textPrimary),
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(
+                    hintText: 'Enter your phone number',
+                    prefixIcon: Icon(Icons.phone_outlined, color: AppTheme.textMuted),
+                    prefixText: '+1 ',
+                  ),
+                ),
+        ),
         const SizedBox(height: 24),
 
         // Continue button
@@ -381,32 +403,205 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildToggleButton(String label, bool isActive, VoidCallback onTap) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            gradient: isActive ? AppTheme.primaryGradient : null,
-            color: isActive ? null : AppTheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isActive ? Colors.transparent : AppTheme.surfaceBorder,
-            ),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isActive ? Colors.white : AppTheme.textSecondary,
-                fontWeight: FontWeight.w600,
+  /// Smooth sliding toggle with animated indicator
+  Widget _buildSmoothToggle() {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.surfaceBorder),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final availableWidth = constraints.maxWidth;
+          final buttonWidth = availableWidth / 2;
+          
+          return Stack(
+            children: [
+              // Animated sliding indicator
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOutCubic,
+                left: _isEmail ? 0 : buttonWidth,
+                top: 0,
+                bottom: 0,
+                width: buttonWidth,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.primaryGradient,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primaryOrange.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                ),
               ),
+              // Labels (always visible, change color based on selection)
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _isEmail = true),
+                      behavior: HitTestBehavior.opaque,
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
+                          style: TextStyle(
+                            color: _isEmail ? Colors.white : AppTheme.textSecondary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                          child: const Text('Email'),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _isEmail = false),
+                      behavior: HitTestBehavior.opaque,
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
+                          style: TextStyle(
+                            color: !_isEmail ? Colors.white : AppTheme.textSecondary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                          child: const Text('Phone'),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Magic link sent confirmation screen
+  Widget _buildMagicLinkSentContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Success icon
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: AppTheme.primaryGradient,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.primaryOrange.withValues(alpha: 0.3),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.email_outlined,
+            color: Colors.white,
+            size: 40,
+          ),
+        ),
+        const SizedBox(height: 28),
+        
+        Text(
+          'Check your email!',
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        
+        RichText(
+          textAlign: TextAlign.center,
+          text: TextSpan(
+            style: Theme.of(context).textTheme.bodyMedium,
+            children: [
+              const TextSpan(text: 'We sent a magic link to\n'),
+              TextSpan(
+                text: _contactInfo,
+                style: TextStyle(
+                  color: AppTheme.primaryOrange,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        
+        Text(
+          'Click the link in the email to sign in.',
+          style: Theme.of(context).textTheme.bodySmall,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 32),
+        
+        // Back to login button
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _magicLinkSent = false;
+              _contactInfo = '';
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.surfaceBorder),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.arrow_back,
+                  color: AppTheme.textSecondary,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Back to login',
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-      ),
+        const SizedBox(height: 20),
+        
+        // Resend link
+        TextButton(
+          onPressed: () {
+            if (_contactInfo.isNotEmpty) {
+              context.read<AuthBloc>().add(SignInWithEmailRequested(_contactInfo));
+            }
+          },
+          child: Text(
+            'Didn\'t receive email? Resend',
+            style: TextStyle(
+              color: AppTheme.accentCyan,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

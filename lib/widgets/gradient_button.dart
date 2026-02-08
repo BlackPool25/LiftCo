@@ -160,32 +160,61 @@ class GlassButton extends StatefulWidget {
   State<GlassButton> createState() => _GlassButtonState();
 }
 
-class _GlassButtonState extends State<GlassButton> {
-  bool _isPressed = false;
+class _GlassButtonState extends State<GlassButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 150),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) => setState(() => _isPressed = false),
-      onTapCancel: () => setState(() => _isPressed = false),
-      onTap: widget.isLoading ? null : widget.onPressed,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: widget.width,
-        padding: widget.padding ??
-            const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
-        decoration: BoxDecoration(
-          color: _isPressed 
-              ? AppTheme.surfaceLight
-              : AppTheme.surface,
-          borderRadius: BorderRadius.circular(widget.borderRadius),
-          border: Border.all(
-            color: AppTheme.surfaceBorder,
-            width: 1.5,
-          ),
-        ),
-        transform: Matrix4.identity()..scale(_isPressed ? 0.98 : 1.0),
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        if (!widget.isLoading && widget.onPressed != null) {
+          widget.onPressed!();
+        }
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Container(
+              width: widget.width,
+              padding: widget.padding ??
+                  const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(widget.borderRadius),
+                border: Border.all(
+                  color: AppTheme.surfaceBorder,
+                  width: 1.5,
+                ),
+              ),
+              child: child,
+            ),
+          );
+        },
         child: Row(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,

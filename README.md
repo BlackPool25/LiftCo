@@ -70,9 +70,9 @@ The app uses a premium dark aesthetic with glassmorphism effects.
 |-------|-----|-------|
 | Background | `#0A0A0F` | Main app background |
 | Surface | `#15151A` | Cards, inputs |
-| Primary Purple | `#8B5CF6` | Primary actions, gradients |
-| Primary Indigo | `#6366F1` | Gradient accents |
-| Accent Cyan | `#22D3EE` | Secondary highlights |
+| Primary Orange | `#E8956A` | Primary actions, gradients |
+| Primary Coral | `#F0A878` | Gradient accents |
+| Primary Teal | `#4ECDC4` | Secondary highlights |
 | Text Primary | `#F8FAFC` | Main text |
 | Text Secondary | `#94A3B8` | Subtitles, hints |
 
@@ -146,6 +146,20 @@ flutter run -d chrome --web-port=3000
 - Web: `http://localhost:3000`
 - Android: `com.liftco.liftco://login-callback/`
 - iOS: `com.liftco.liftco://login-callback/`
+
+**Android Deep Link Setup (AndroidManifest.xml):**
+```xml
+<intent-filter android:autoVerify="true">
+    <action android:name="android.intent.action.VIEW"/>
+    <category android:name="android.intent.category.DEFAULT"/>
+    <category android:name="android.intent.category.BROWSABLE"/>
+    <data android:scheme="com.liftco.liftco" android:host="login-callback"/>
+</intent-filter>
+```
+
+**Supabase Dashboard Configuration:**
+1. Go to Authentication → URL Configuration
+2. Add `com.liftco.liftco://login-callback/` to Redirect URLs
 
 ---
 
