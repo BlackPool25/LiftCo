@@ -94,7 +94,7 @@ class AuthService {
     try {
       final response = await _supabase.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: kIsWeb ? null : 'com.liftco.liftco://login-callback/',
+        redirectTo: kIsWeb ? 'http://localhost:3000' : 'com.liftco.liftco://login-callback/',
       );
       return response;
     } on AuthException catch (e) {

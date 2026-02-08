@@ -63,7 +63,7 @@ class AppNavigator extends StatelessWidget {
         if (state is app_bloc.AuthInitial || state is app_bloc.AuthLoading) {
           return const Scaffold(
             body: Center(
-              child: CircularProgressIndicator(color: AppTheme.primaryColor),
+              child: CircularProgressIndicator(color: AppTheme.primaryPurple),
             ),
           );
         }
