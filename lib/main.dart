@@ -6,7 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'blocs/auth_bloc.dart' as app_bloc;
 import 'config/theme.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_shell.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_setup_screen.dart';
 import 'services/auth_service.dart';
@@ -85,7 +85,7 @@ class AppNavigator extends StatelessWidget {
         
         // Show home screen if authenticated with complete profile
         if (state is app_bloc.Authenticated) {
-          return HomeScreen(user: state.user);
+          return MainShell(user: state.user);
         }
         
         // Show error screen

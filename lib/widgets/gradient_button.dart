@@ -29,44 +29,77 @@ class GradientButton extends StatefulWidget {
   State<GradientButton> createState() => _GradientButtonState();
 }
 
-class _GradientButtonState extends State<GradientButton> {
-  bool _isPressed = false;
+class _GradientButtonState extends State<GradientButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _glowAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 150),
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+    );
+    _glowAnimation = Tween<double>(begin: 1.0, end: 0.5).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = widget.gradientColors ?? [
-      AppTheme.primaryPurple,
-      AppTheme.primaryIndigo,
+      AppTheme.primaryOrange,
+      AppTheme.primaryCoral,
     ];
 
     return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) => setState(() => _isPressed = false),
-      onTapCancel: () => setState(() => _isPressed = false),
-      onTap: widget.isLoading ? null : widget.onPressed,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: widget.width,
-        padding: widget.padding ??
-            const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: colors,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(widget.borderRadius),
-          boxShadow: _isPressed
-              ? []
-              : [
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        if (!widget.isLoading && widget.onPressed != null) {
+          widget.onPressed!();
+        }
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Container(
+              width: widget.width,
+              padding: widget.padding ??
+                  const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: colors,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(widget.borderRadius),
+                boxShadow: [
                   BoxShadow(
-                    color: colors.first.withValues(alpha: 0.4),
+                    color: colors.first.withValues(alpha: 0.4 * _glowAnimation.value),
                     blurRadius: 20,
                     offset: const Offset(0, 8),
                   ),
                 ],
-        ),
-        transform: Matrix4.identity()..scale(_isPressed ? 0.98 : 1.0),
+              ),
+              child: child,
+            ),
+          );
+        },
         child: Row(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,

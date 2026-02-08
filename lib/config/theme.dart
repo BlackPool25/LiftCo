@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
-  // === PREMIUM DARK COLOR PALETTE ===
+  // === ENERGETIC FITNESS COLOR PALETTE ===
   
   // Background colors - True dark with subtle warmth
   static const Color background = Color(0xFF0A0A0F);
@@ -17,11 +17,16 @@ class AppTheme {
   static Color get glassBackground => const Color(0xFF1A1A24).withValues(alpha: 0.6);
   static Color get glassBorder => const Color(0xFF3A3A4A).withValues(alpha: 0.3);
   
-  // Primary gradient colors
-  static const Color primaryPurple = Color(0xFF8B5CF6);
-  static const Color primaryIndigo = Color(0xFF6366F1);
-  static const Color primaryBlue = Color(0xFF3B82F6);
-  static const Color accentCyan = Color(0xFF22D3EE);
+  // Primary gradient colors - Warm Amber to Teal
+  static const Color primaryOrange = Color(0xFFE8956A);
+  static const Color primaryCoral = Color(0xFFF0A878);
+  static const Color primaryBlue = Color(0xFF4ECDC4);
+  static const Color accentCyan = Color(0xFF45B7AA);
+  static const Color accentLime = Color(0xFF7CFC00);
+  
+  // Legacy color aliases for compatibility
+  static const Color primaryPurple = primaryOrange; // Map to new primary
+  static const Color primaryIndigo = primaryCoral;
   static const Color accentPink = Color(0xFFEC4899);
   
   // Text colors
@@ -38,23 +43,23 @@ class AppTheme {
   // === GRADIENT DEFINITIONS ===
   
   static const LinearGradient primaryGradient = LinearGradient(
-    colors: [primaryPurple, primaryIndigo],
+    colors: [primaryOrange, primaryCoral],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
   
   static const LinearGradient accentGradient = LinearGradient(
-    colors: [accentCyan, primaryPurple],
+    colors: [primaryBlue, accentCyan],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
   
   static const LinearGradient meshGradient = LinearGradient(
     colors: [
-      Color(0xFF6366F1),
-      Color(0xFF8B5CF6),
-      Color(0xFFA78BFA),
-      Color(0xFF22D3EE),
+      Color(0xFFE8956A),
+      Color(0xFFF0A878),
+      Color(0xFF4ECDC4),
+      Color(0xFF45B7AA),
     ],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
@@ -70,9 +75,9 @@ class AppTheme {
   // Card-specific gradients (like the wallet card in reference)
   static const LinearGradient featureCardGradient = LinearGradient(
     colors: [
-      Color(0xFF2D1B69),
-      Color(0xFF1E3A5F),
-      Color(0xFF0F2847),
+      Color(0xFF1A3A4A),
+      Color(0xFF0F2E3D),
+      Color(0xFF0A1F2A),
     ],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
