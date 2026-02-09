@@ -94,7 +94,7 @@ The app uses a premium dark aesthetic with glassmorphism effects.
 
 ### Supported Methods
 
-1. **Email OTP** - Passwordless email verification
+1. **Email Magic Link** - Passwordless email verification via magic link
 2. **Phone OTP** - SMS-based verification
 3. **Google OAuth** - Sign in with Google
 4. **Apple Sign-In** - Sign in with Apple ID
@@ -103,8 +103,8 @@ The app uses a premium dark aesthetic with glassmorphism effects.
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Login     │───▶│    OTP      │───▶│   Profile   │
-│   Screen    │    │  Verify     │    │   Setup     │
+│   Login     │───▶│ Magic Link  │───▶│   Profile   │
+│   Screen    │    │   Sent UI   │    │   Setup     │
 └─────────────┘    └─────────────┘    └─────────────┘
        │                                     │
        │ (OAuth)                             ▼
@@ -113,6 +113,14 @@ The app uses a premium dark aesthetic with glassmorphism effects.
                                       │   Screen    │
                                       └─────────────┘
 ```
+
+**Email Magic Link Flow:**
+1. User enters email on login screen
+2. `SignInWithEmailRequested` event dispatched
+3. Supabase sends magic link email
+4. `MagicLinkSent` state emitted → Confirmation UI shown
+5. User clicks link in email → redirected back to app
+6. `Authenticated` or `NeedsProfileCompletion` state emitted
 
 ### BLoC Events & States
 
@@ -129,9 +137,10 @@ The app uses a premium dark aesthetic with glassmorphism effects.
 **States:**
 - `AuthInitial` - Initial state
 - `AuthLoading` - Auth operation in progress
-- `OTPSent` - OTP sent, awaiting verification
+- `OTPSent` - OTP sent (phone), awaiting verification
+- `MagicLinkSent` - Magic link sent (email), showing confirmation UI
 - `Authenticated` - User logged in with complete profile
-- `NeedsProfileSetup` - User logged in, needs profile
+- `NeedsProfileCompletion` - User logged in, needs profile setup
 - `Unauthenticated` - User not logged in
 - `AuthError` - Error occurred
 
@@ -248,9 +257,16 @@ All tables have RLS enabled. Users can only:
 ### Login Screen
 - Glassmorphic card with animated gradient orbs background
 - Toggle between Email and Phone input
-- Individual OTP digit boxes (6 digits)
+- **Magic Link Confirmation UI** - Full-width centered layout with:
+  - Gradient icon badge
+  - Email highlighted in styled pill
+  - Back to login & Resend link options
+- Individual OTP digit boxes (6 digits) for phone verification
 - Google and Apple OAuth buttons
 - Smooth entrance animations with stagger
+
+**LoginScreen Widget Props:**
+- `magicLinkEmail` (optional) - If provided, shows magic link confirmation UI
 
 ### Profile Setup Screen
 - 4-step wizard with animated progress bar

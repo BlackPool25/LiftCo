@@ -1,5 +1,4 @@
 // lib/screens/login_screen.dart
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -11,7 +10,11 @@ import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  /// If provided, the login screen will show the magic link sent confirmation UI
+  /// with this email address displayed.
+  final String? magicLinkEmail;
+  
+  const LoginScreen({super.key, this.magicLinkEmail});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -30,6 +33,16 @@ class _LoginScreenState extends State<LoginScreen>
   bool _otpSent = false;
   bool _magicLinkSent = false;
   String _contactInfo = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize state from constructor parameter if provided
+    if (widget.magicLinkEmail != null) {
+      _magicLinkSent = true;
+      _contactInfo = widget.magicLinkEmail!;
+    }
+  }
 
   @override
   void dispose() {
@@ -162,19 +175,19 @@ class _LoginScreenState extends State<LoginScreen>
                       GlassCard(
                         padding: const EdgeInsets.all(28),
                         borderRadius: 28,
-                        child: state is AuthLoading
-                            ? const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(40),
-                                  child: CircularProgressIndicator(
-                                    color: AppTheme.primaryOrange,
-                                  ),
-                                ),
-                              )
-                            : _magicLinkSent
-                                ? _buildMagicLinkSentContent()
-                                : _otpSent
-                                    ? _buildOTPContent()
+                        child: _magicLinkSent
+                            ? _buildMagicLinkSentContent()
+                            : _otpSent
+                                ? _buildOTPContent()
+                                : state is AuthLoading
+                                    ? const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.all(40),
+                                          child: CircularProgressIndicator(
+                                            color: AppTheme.primaryOrange,
+                                          ),
+                                        ),
+                                      )
                                     : _buildLoginContent(),
                       ).animate().fadeIn(delay: 200.ms, duration: 500.ms)
                           .slideY(begin: 0.1, end: 0),
@@ -490,118 +503,141 @@ class _LoginScreenState extends State<LoginScreen>
 
   /// Magic link sent confirmation screen
   Widget _buildMagicLinkSentContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        // Success icon
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: AppTheme.primaryGradient,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryOrange.withValues(alpha: 0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: const Icon(
-            Icons.email_outlined,
-            color: Colors.white,
-            size: 40,
-          ),
-        ),
-        const SizedBox(height: 28),
-        
-        Text(
-          'Check your email!',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 12),
-        
-        RichText(
-          textAlign: TextAlign.center,
-          text: TextSpan(
-            style: Theme.of(context).textTheme.bodyMedium,
-            children: [
-              const TextSpan(text: 'We sent a magic link to\n'),
-              TextSpan(
-                text: _contactInfo,
-                style: TextStyle(
-                  color: AppTheme.primaryOrange,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        
-        Text(
-          'Click the link in the email to sign in.',
-          style: Theme.of(context).textTheme.bodySmall,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 32),
-        
-        // Back to login button
-        GestureDetector(
-          onTap: () {
-            setState(() {
-              _magicLinkSent = false;
-              _contactInfo = '';
-            });
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+    return SizedBox(
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 16),
+          
+          // Success icon with gradient background
+          Container(
+            padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: AppTheme.surface,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.surfaceBorder),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.arrow_back,
-                  color: AppTheme.textSecondary,
-                  size: 18,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Back to login',
-                  style: TextStyle(
-                    color: AppTheme.textSecondary,
-                    fontWeight: FontWeight.w500,
-                  ),
+              gradient: AppTheme.primaryGradient,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.primaryOrange.withValues(alpha: 0.4),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
-          ),
-        ),
-        const SizedBox(height: 20),
-        
-        // Resend link
-        TextButton(
-          onPressed: () {
-            if (_contactInfo.isNotEmpty) {
-              context.read<AuthBloc>().add(SignInWithEmailRequested(_contactInfo));
-            }
-          },
-          child: Text(
-            'Didn\'t receive email? Resend',
-            style: TextStyle(
-              color: AppTheme.accentCyan,
-              fontWeight: FontWeight.w500,
+            child: const Icon(
+              Icons.mark_email_read_outlined,
+              color: Colors.white,
+              size: 48,
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 32),
+          
+          // Title
+          Text(
+            'Check your email!',
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.textPrimary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          
+          // Subtitle with email
+          Text(
+            'We sent a magic link to',
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: AppTheme.textSecondary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          
+          // Email address highlighted
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryOrange.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppTheme.primaryOrange.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Text(
+              _contactInfo,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: AppTheme.primaryOrange,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Instruction text
+          Text(
+            'Click the link in the email to sign in.\nThe link will expire in 1 hour.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppTheme.textMuted,
+              height: 1.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          
+          // Back to login button - full width
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _magicLinkSent = false;
+                  _contactInfo = '';
+                });
+              },
+              icon: const Icon(Icons.arrow_back, size: 18),
+              label: const Text('Back to login'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                foregroundColor: AppTheme.textSecondary,
+                side: BorderSide(color: AppTheme.surfaceBorder),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Resend link
+          TextButton(
+            onPressed: () {
+              if (_contactInfo.isNotEmpty) {
+                context.read<AuthBloc>().add(SignInWithEmailRequested(_contactInfo));
+              }
+            },
+            child: RichText(
+              text: TextSpan(
+                style: Theme.of(context).textTheme.bodyMedium,
+                children: [
+                  TextSpan(
+                    text: "Didn't receive email? ",
+                    style: TextStyle(color: AppTheme.textMuted),
+                  ),
+                  TextSpan(
+                    text: 'Resend',
+                    style: TextStyle(
+                      color: AppTheme.accentCyan,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 

@@ -98,6 +98,11 @@ class AppNavigator extends StatelessWidget {
           return const LoginScreen();
         }
         
+        // Show magic link sent confirmation screen
+        if (state is app_bloc.MagicLinkSent) {
+          return LoginScreen(magicLinkEmail: state.email);
+        }
+        
         // Show profile setup if profile incomplete
         if (state is app_bloc.NeedsProfileCompletion) {
           return const ProfileSetupScreen();
