@@ -7,28 +7,28 @@ class AuthException implements Exception {
   final String message;
   final String? code;
   AuthException(this.message, {this.code});
-  
+
   @override
   String toString() => 'AuthException: $message';
 }
 
 class AuthService {
   final SupabaseClient _supabase;
-  
+
   AuthService(this._supabase);
-  
+
   // Get current session
   Session? get currentSession => _supabase.auth.currentSession;
-  
+
   // Get current user
   User? get currentAuthUser => _supabase.auth.currentUser;
-  
+
   // Check if user is authenticated
   bool get isAuthenticated => currentSession != null;
-  
+
   // Auth state stream
   Stream<AuthState> get authStateChanges => _supabase.auth.onAuthStateChange;
-  
+
   /// Sign in with email Magic Link
   Future<void> signInWithEmailMagicLink(String email) async {
     try {
@@ -36,8 +36,8 @@ class AuthService {
       await _supabase.auth.signInWithOtp(
         email: email,
         shouldCreateUser: true,
-        emailRedirectTo: kIsWeb 
-            ? 'http://localhost:3000' 
+        emailRedirectTo: kIsWeb
+            ? 'http://localhost:3000'
             : 'com.liftco.liftco://login-callback/',
       );
     } on AuthException catch (e) {
@@ -66,10 +66,7 @@ class AuthService {
   /// Sign in with phone OTP
   Future<void> signInWithPhoneOTP(String phone) async {
     try {
-      await _supabase.auth.signInWithOtp(
-        phone: phone,
-        shouldCreateUser: true,
-      );
+      await _supabase.auth.signInWithOtp(phone: phone, shouldCreateUser: true);
     } on AuthException catch (e) {
       throw AuthException(e.message, code: 'auth_error');
     } catch (e) {
@@ -98,7 +95,9 @@ class AuthService {
     try {
       final response = await _supabase.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: kIsWeb ? 'http://localhost:3000' : 'com.liftco.liftco://login-callback/',
+        redirectTo: kIsWeb
+            ? 'http://localhost:3000'
+            : 'com.liftco.liftco://login-callback/',
       );
       return response;
     } on AuthException catch (e) {
@@ -122,19 +121,19 @@ class AuthService {
       throw AuthException('Apple sign in failed: $e');
     }
   }
-  
+
   /// Check if user exists in database
   Future<app_user.User?> getUserProfile() async {
     try {
       final authUser = currentAuthUser;
       if (authUser == null) return null;
-      
+
       final response = await _supabase
-        .from('users')
-        .select()
-        .eq('id', authUser.id)
-        .maybeSingle();
-      
+          .from('users')
+          .select()
+          .eq('id', authUser.id)
+          .maybeSingle();
+
       if (response == null) return null;
       return app_user.User.fromJson(response);
     } catch (e) {
@@ -142,25 +141,25 @@ class AuthService {
       return null;
     }
   }
-  
+
   /// Check if user profile exists
   Future<bool> checkUserExists() async {
     try {
       final authUser = currentAuthUser;
       if (authUser == null) return false;
-      
+
       final response = await _supabase
-        .from('users')
-        .select('id')
-        .eq('id', authUser.id)
-        .maybeSingle();
-      
+          .from('users')
+          .select('id')
+          .eq('id', authUser.id)
+          .maybeSingle();
+
       return response != null;
     } catch (e) {
       return false;
     }
   }
-  
+
   /// Create or update user profile
   Future<app_user.User> completeProfile({
     required String name,
@@ -177,12 +176,15 @@ class AuthService {
       if (authUser == null) {
         throw AuthException('Not authenticated');
       }
-      
+
+      // Normalize phone number: treat empty strings as null for consistency
+      final phoneNumber = authUser.phone?.trim();
+
       final userData = {
         'id': authUser.id,
         'name': name,
         'email': authUser.email,
-        'phone_number': authUser.phone,
+        'phone_number': (phoneNumber?.isNotEmpty ?? false) ? phoneNumber : null,
         'age': age,
         'gender': gender,
         'experience_level': experienceLevel,
@@ -192,13 +194,16 @@ class AuthService {
         'bio': bio,
         'reputation_score': 100,
       };
-      
+
+      debugPrint('Saving user profile with data: $userData');
+
       final response = await _supabase
-        .from('users')
-        .upsert(userData)
-        .select()
-        .single();
-      
+          .from('users')
+          .upsert(userData, onConflict: 'id')
+          .select()
+          .single();
+
+      debugPrint('Profile saved successfully: $response');
       return app_user.User.fromJson(response);
     } on PostgrestException catch (e) {
       throw AuthException('Database error: ${e.message}', code: e.code);
@@ -206,7 +211,7 @@ class AuthService {
       throw AuthException('Failed to complete profile: $e');
     }
   }
-  
+
   /// Sign out
   Future<void> signOut() async {
     try {

@@ -1,59 +1,60 @@
 // lib/config/theme.dart
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // === ENERGETIC FITNESS COLOR PALETTE ===
-  
+
   // Background colors - True dark with subtle warmth
   static const Color background = Color(0xFF0A0A0F);
   static const Color backgroundSecondary = Color(0xFF0F0F14);
   static const Color surface = Color(0xFF15151A);
   static const Color surfaceLight = Color(0xFF1E1E26);
   static const Color surfaceBorder = Color(0xFF2A2A35);
-  
+
   // Glassmorphism colors
-  static Color get glassBackground => const Color(0xFF1A1A24).withValues(alpha: 0.6);
-  static Color get glassBorder => const Color(0xFF3A3A4A).withValues(alpha: 0.3);
-  
+  static Color get glassBackground =>
+      const Color(0xFF1A1A24).withValues(alpha: 0.6);
+  static Color get glassBorder =>
+      const Color(0xFF3A3A4A).withValues(alpha: 0.3);
+
   // Primary gradient colors - Warm Amber to Teal
   static const Color primaryOrange = Color(0xFFE8956A);
   static const Color primaryCoral = Color(0xFFF0A878);
   static const Color primaryBlue = Color(0xFF4ECDC4);
   static const Color accentCyan = Color(0xFF45B7AA);
   static const Color accentLime = Color(0xFF7CFC00);
-  
+
   // Legacy color aliases for compatibility
   static const Color primaryPurple = primaryOrange; // Map to new primary
   static const Color primaryIndigo = primaryCoral;
   static const Color accentPink = Color(0xFFEC4899);
-  
+
   // Text colors
   static const Color textPrimary = Color(0xFFF8FAFC);
   static const Color textSecondary = Color(0xFF94A3B8);
   static const Color textMuted = Color(0xFF64748B);
   static const Color textDim = Color(0xFF475569);
-  
+
   // Status colors
   static const Color success = Color(0xFF22C55E);
   static const Color error = Color(0xFFEF4444);
   static const Color warning = Color(0xFFF59E0B);
-  
+
   // === GRADIENT DEFINITIONS ===
-  
+
   static const LinearGradient primaryGradient = LinearGradient(
     colors: [primaryOrange, primaryCoral],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
-  
+
   static const LinearGradient accentGradient = LinearGradient(
     colors: [primaryBlue, accentCyan],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
-  
+
   static const LinearGradient meshGradient = LinearGradient(
     colors: [
       Color(0xFFE8956A),
@@ -65,26 +66,22 @@ class AppTheme {
     end: Alignment.bottomRight,
     stops: [0.0, 0.33, 0.66, 1.0],
   );
-  
+
   static const LinearGradient surfaceGradient = LinearGradient(
     colors: [backgroundSecondary, background],
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
   );
-  
+
   // Card-specific gradients (like the wallet card in reference)
   static const LinearGradient featureCardGradient = LinearGradient(
-    colors: [
-      Color(0xFF1A3A4A),
-      Color(0xFF0F2E3D),
-      Color(0xFF0A1F2A),
-    ],
+    colors: [Color(0xFF1A3A4A), Color(0xFF0F2E3D), Color(0xFF0A1F2A)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   // === THEME DATA ===
-  
+
   static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
@@ -235,15 +232,12 @@ class AppTheme {
           borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: error, width: 1),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-        hintStyle: GoogleFonts.inter(
-          color: textMuted,
-          fontSize: 14,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 18,
         ),
-        labelStyle: GoogleFonts.inter(
-          color: textSecondary,
-          fontSize: 14,
-        ),
+        hintStyle: GoogleFonts.inter(color: textMuted, fontSize: 14),
+        labelStyle: GoogleFonts.inter(color: textSecondary, fontSize: 14),
       ),
       cardTheme: CardThemeData(
         color: surface,
@@ -261,18 +255,14 @@ class AppTheme {
           fontSize: 13,
           fontWeight: FontWeight.w500,
         ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         side: BorderSide(color: surfaceBorder),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: primaryPurple,
         foregroundColor: Colors.white,
         elevation: 8,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: surface,
@@ -282,9 +272,9 @@ class AppTheme {
       ),
     );
   }
-  
+
   // === HELPER METHODS ===
-  
+
   /// Creates a glassmorphic decoration
   static BoxDecoration glassDecoration({
     double borderRadius = 24,
@@ -297,7 +287,7 @@ class AppTheme {
       border: hasBorder ? Border.all(color: glassBorder, width: 1) : null,
     );
   }
-  
+
   /// Creates a gradient card decoration
   static BoxDecoration gradientCardDecoration({
     required List<Color> colors,

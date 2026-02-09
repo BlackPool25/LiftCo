@@ -9,7 +9,7 @@ import '../services/device_service.dart';
 // Events
 abstract class AuthEvent extends Equatable {
   const AuthEvent();
-  
+
   @override
   List<Object?> get props => [];
 }
@@ -19,7 +19,7 @@ class AppStarted extends AuthEvent {}
 class SignInWithEmailRequested extends AuthEvent {
   final String email;
   const SignInWithEmailRequested(this.email);
-  
+
   @override
   List<Object?> get props => [email];
 }
@@ -28,7 +28,7 @@ class VerifyEmailOTPRequested extends AuthEvent {
   final String email;
   final String otp;
   const VerifyEmailOTPRequested(this.email, this.otp);
-  
+
   @override
   List<Object?> get props => [email, otp];
 }
@@ -36,7 +36,7 @@ class VerifyEmailOTPRequested extends AuthEvent {
 class SignInWithPhoneRequested extends AuthEvent {
   final String phone;
   const SignInWithPhoneRequested(this.phone);
-  
+
   @override
   List<Object?> get props => [phone];
 }
@@ -45,7 +45,7 @@ class VerifyPhoneOTPRequested extends AuthEvent {
   final String phone;
   final String otp;
   const VerifyPhoneOTPRequested(this.phone, this.otp);
-  
+
   @override
   List<Object?> get props => [phone, otp];
 }
@@ -63,7 +63,7 @@ class CompleteProfileRequested extends AuthEvent {
   final String? currentWorkoutSplit;
   final int? timeWorkingOutMonths;
   final String? bio;
-  
+
   const CompleteProfileRequested({
     required this.name,
     required this.age,
@@ -74,11 +74,17 @@ class CompleteProfileRequested extends AuthEvent {
     this.timeWorkingOutMonths,
     this.bio,
   });
-  
+
   @override
   List<Object?> get props => [
-    name, age, gender, experienceLevel, preferredTime,
-    currentWorkoutSplit, timeWorkingOutMonths, bio,
+    name,
+    age,
+    gender,
+    experienceLevel,
+    preferredTime,
+    currentWorkoutSplit,
+    timeWorkingOutMonths,
+    bio,
   ];
 }
 
@@ -87,7 +93,7 @@ class SignOutRequested extends AuthEvent {}
 class SupabaseAuthStateChanged extends AuthEvent {
   final dynamic authState;
   const SupabaseAuthStateChanged(this.authState);
-  
+
   @override
   List<Object?> get props => [authState];
 }
@@ -95,7 +101,7 @@ class SupabaseAuthStateChanged extends AuthEvent {
 // States
 abstract class AuthState extends Equatable {
   const AuthState();
-  
+
   @override
   List<Object?> get props => [];
 }
@@ -107,7 +113,7 @@ class AuthLoading extends AuthState {}
 class Unauthenticated extends AuthState {
   final String? errorMessage;
   const Unauthenticated({this.errorMessage});
-  
+
   @override
   List<Object?> get props => [errorMessage];
 }
@@ -116,7 +122,7 @@ class OTPSent extends AuthState {
   final String emailOrPhone;
   final bool isEmail;
   const OTPSent({required this.emailOrPhone, required this.isEmail});
-  
+
   @override
   List<Object?> get props => [emailOrPhone, isEmail];
 }
@@ -124,7 +130,7 @@ class OTPSent extends AuthState {
 class MagicLinkSent extends AuthState {
   final String email;
   const MagicLinkSent({required this.email});
-  
+
   @override
   List<Object?> get props => [email];
 }
@@ -132,7 +138,7 @@ class MagicLinkSent extends AuthState {
 class Authenticated extends AuthState {
   final app_user.User user;
   const Authenticated(this.user);
-  
+
   @override
   List<Object?> get props => [user];
 }
@@ -141,7 +147,7 @@ class NeedsProfileCompletion extends AuthState {
   final String? email;
   final String? phone;
   const NeedsProfileCompletion({this.email, this.phone});
-  
+
   @override
   List<Object?> get props => [email, phone];
 }
@@ -149,7 +155,7 @@ class NeedsProfileCompletion extends AuthState {
 class AuthError extends AuthState {
   final String message;
   const AuthError(this.message);
-  
+
   @override
   List<Object?> get props => [message];
 }
@@ -158,10 +164,10 @@ class AuthError extends AuthState {
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   final DeviceService? _deviceService;
-  
-  AuthBloc(this._authService, {DeviceService? deviceService}) 
-      : _deviceService = deviceService,
-        super(AuthInitial()) {
+
+  AuthBloc(this._authService, {DeviceService? deviceService})
+    : _deviceService = deviceService,
+      super(AuthInitial()) {
     on<AppStarted>(_onAppStarted);
     on<SignInWithEmailRequested>(_onSignInWithEmail);
     on<VerifyEmailOTPRequested>(_onVerifyEmailOTP);
@@ -172,13 +178,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<CompleteProfileRequested>(_onCompleteProfile);
     on<SignOutRequested>(_onSignOut);
     on<SupabaseAuthStateChanged>(_onAuthStateChanged);
-    
+
     // Listen to auth state changes
     _authService.authStateChanges.listen((authState) {
       add(SupabaseAuthStateChanged(authState));
     });
   }
-  
+
   /// Register device for push notifications
   Future<void> _registerDevice() async {
     if (_deviceService != null && _authService.currentAuthUser != null) {
@@ -189,28 +195,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
     }
   }
-  
+
   Future<void> _onAppStarted(AppStarted event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
-    
+
     try {
       if (_authService.isAuthenticated) {
         final user = await _authService.getUserProfile();
         if (user != null) {
           if (user.isProfileComplete) {
-            await _registerDevice();  // Register device on successful auth
+            await _registerDevice(); // Register device on successful auth
             emit(Authenticated(user));
           } else {
-            emit(NeedsProfileCompletion(
-              email: user.email,
-              phone: user.phoneNumber,
-            ));
+            emit(
+              NeedsProfileCompletion(
+                email: user.email,
+                phone: user.phoneNumber,
+              ),
+            );
           }
         } else {
-          emit(NeedsProfileCompletion(
-            email: _authService.currentAuthUser?.email,
-            phone: _authService.currentAuthUser?.phone,
-          ));
+          emit(
+            NeedsProfileCompletion(
+              email: _authService.currentAuthUser?.email,
+              phone: _authService.currentAuthUser?.phone,
+            ),
+          );
         }
       } else {
         emit(const Unauthenticated());
@@ -219,13 +229,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(Unauthenticated(errorMessage: e.toString()));
     }
   }
-  
+
   Future<void> _onSignInWithEmail(
     SignInWithEmailRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    
+
     try {
       await _authService.signInWithEmailMagicLink(event.email);
       debugPrint('Magic link sent successfully, emitting MagicLinkSent state');
@@ -235,16 +245,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthError(e.toString()));
     }
   }
-  
+
   Future<void> _onVerifyEmailOTP(
     VerifyEmailOTPRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    
+
     try {
       await _authService.verifyEmailOTP(event.email, event.otp);
-      
+
       // Check if user exists
       final exists = await _authService.checkUserExists();
       if (exists) {
@@ -261,13 +271,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthError(e.toString()));
     }
   }
-  
+
   Future<void> _onSignInWithPhone(
     SignInWithPhoneRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    
+
     try {
       await _authService.signInWithPhoneOTP(event.phone);
       emit(OTPSent(emailOrPhone: event.phone, isEmail: false));
@@ -275,16 +285,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthError(e.toString()));
     }
   }
-  
+
   Future<void> _onVerifyPhoneOTP(
     VerifyPhoneOTPRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    
+
     try {
       await _authService.verifyPhoneOTP(event.phone, event.otp);
-      
+
       // Check if user exists
       final exists = await _authService.checkUserExists();
       if (exists) {
@@ -301,13 +311,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthError(e.toString()));
     }
   }
-  
+
   Future<void> _onSignInWithGoogle(
     SignInWithGoogleRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    
+
     try {
       await _authService.signInWithGoogle();
       // OAuth will trigger auth state change
@@ -315,13 +325,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthError(e.toString()));
     }
   }
-  
+
   Future<void> _onSignInWithApple(
     SignInWithAppleRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    
+
     try {
       await _authService.signInWithApple();
       // OAuth will trigger auth state change
@@ -329,14 +339,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthError(e.toString()));
     }
   }
-  
+
   Future<void> _onCompleteProfile(
     CompleteProfileRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    
+
     try {
+      debugPrint(
+        'Completing profile with: name=${event.name}, age=${event.age}, gender=${event.gender}, experience=${event.experienceLevel}, time=${event.preferredTime}',
+      );
+
       final user = await _authService.completeProfile(
         name: event.name,
         age: event.age,
@@ -347,16 +361,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         timeWorkingOutMonths: event.timeWorkingOutMonths,
         bio: event.bio,
       );
-      
+
+      debugPrint(
+        'Profile completed successfully. isProfileComplete: ${user.isProfileComplete}',
+      );
+
       // Register device for push notifications after profile completion
       await _registerDevice();
-      
+
       emit(Authenticated(user));
     } catch (e) {
+      debugPrint('Profile completion failed: $e');
       emit(AuthError(e.toString()));
     }
   }
-  
+
   /// Deactivate device before signing out
   Future<void> _deactivateDevice() async {
     if (_deviceService != null && _authService.currentAuthUser != null) {
@@ -367,35 +386,35 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
     }
   }
-  
+
   Future<void> _onSignOut(
     SignOutRequested event,
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-    
+
     try {
       // Deactivate device before signing out
       await _deactivateDevice();
-      
+
       await _authService.signOut();
       emit(const Unauthenticated());
     } catch (e) {
       emit(AuthError(e.toString()));
     }
   }
-  
+
   Future<void> _onAuthStateChanged(
     SupabaseAuthStateChanged event,
     Emitter<AuthState> emit,
   ) async {
     final session = event.authState.session;
-    
+
     if (session == null) {
       emit(const Unauthenticated());
       return;
     }
-    
+
     // For OAuth, check if user profile exists
     try {
       final exists = await _authService.checkUserExists();
@@ -406,22 +425,28 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           await _registerDevice();
           emit(Authenticated(user));
         } else {
-          emit(NeedsProfileCompletion(
-            email: session.user.email,
-            phone: session.user.phone,
-          ));
+          emit(
+            NeedsProfileCompletion(
+              email: session.user.email,
+              phone: session.user.phone,
+            ),
+          );
         }
       } else {
-        emit(NeedsProfileCompletion(
-          email: session.user.email,
-          phone: session.user.phone,
-        ));
+        emit(
+          NeedsProfileCompletion(
+            email: session.user.email,
+            phone: session.user.phone,
+          ),
+        );
       }
     } catch (e) {
-      emit(NeedsProfileCompletion(
-        email: session.user.email,
-        phone: session.user.phone,
-      ));
+      emit(
+        NeedsProfileCompletion(
+          email: session.user.email,
+          phone: session.user.phone,
+        ),
+      );
     }
   }
 }

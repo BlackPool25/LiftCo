@@ -1,8 +1,6 @@
 // lib/screens/home_tab.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import '../blocs/auth_bloc.dart';
 import '../config/theme.dart';
 import '../models/user.dart' as app_user;
 import '../widgets/glass_card.dart';
@@ -44,8 +42,8 @@ class HomeTab extends StatelessWidget {
                 Text(
                   'Hey, ${user.name.split(' ').first}! 👋',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
+                    color: AppTheme.textSecondary,
+                  ),
                 ).animate().fadeIn(delay: 100.ms),
 
                 const SizedBox(height: 8),
@@ -53,17 +51,17 @@ class HomeTab extends StatelessWidget {
                 Text(
                   'Ready to crush\nyour workout?',
                   style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                        color: AppTheme.textPrimary,
-                        height: 1.2,
-                      ),
+                    color: AppTheme.textPrimary,
+                    height: 1.2,
+                  ),
                 ).animate().fadeIn(delay: 150.ms).slideY(begin: 0.1),
 
                 const SizedBox(height: 32),
 
                 // Stats Section (moved to top)
-                _buildStatsSection(context)
-                    .animate()
-                    .fadeIn(delay: 200.ms, duration: 500.ms),
+                _buildStatsSection(
+                  context,
+                ).animate().fadeIn(delay: 200.ms, duration: 500.ms),
 
                 const SizedBox(height: 32),
 
@@ -151,11 +149,7 @@ class HomeTab extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(
-                Icons.star,
-                color: Colors.white,
-                size: 16,
-              ),
+              const Icon(Icons.star, color: Colors.white, size: 16),
               const SizedBox(width: 6),
               Text(
                 '${user.reputationScore}',
@@ -209,10 +203,7 @@ class HomeTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Your Stats',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        Text('Your Stats', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 16),
         Row(
           children: [
@@ -231,7 +222,7 @@ class HomeTab extends StatelessWidget {
                 label: 'Level',
                 value: user.experienceLevel != null
                     ? user.experienceLevel!.substring(0, 1).toUpperCase() +
-                        user.experienceLevel!.substring(1)
+                          user.experienceLevel!.substring(1)
                     : 'Beginner',
                 iconColor: AppTheme.success,
               ),
@@ -269,10 +260,7 @@ class HomeTab extends StatelessWidget {
                   children: [
                     Text(
                       'Preferred Time',
-                      style: TextStyle(
-                        color: AppTheme.textMuted,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -288,10 +276,7 @@ class HomeTab extends StatelessWidget {
               ),
               Text(
                 '${timeData['time']}',
-                style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
               ),
             ],
           ),
@@ -332,10 +317,7 @@ class HomeTab extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: const TextStyle(
-              color: AppTheme.textMuted,
-              fontSize: 13,
-            ),
+            style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
           ),
         ],
       ),
@@ -349,11 +331,7 @@ class HomeTab extends StatelessWidget {
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [
-              Color(0xFF1A3A4A),
-              Color(0xFF0F2E3D),
-              Color(0xFF0A1F2A),
-            ],
+            colors: [Color(0xFF1A3A4A), Color(0xFF0F2E3D), Color(0xFF0A1F2A)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -439,7 +417,10 @@ class HomeTab extends StatelessWidget {
                 ),
                 const SizedBox(height: 24),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
                   decoration: BoxDecoration(
                     gradient: AppTheme.primaryGradient,
                     borderRadius: BorderRadius.circular(14),
@@ -454,11 +435,7 @@ class HomeTab extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        Icons.search,
-                        color: Colors.white,
-                        size: 20,
-                      ),
+                      const Icon(Icons.search, color: Colors.white, size: 20),
                       const SizedBox(width: 10),
                       const Text(
                         'Browse Gyms',
