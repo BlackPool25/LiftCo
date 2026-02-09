@@ -89,7 +89,8 @@ class DeviceService {
     try {
       if (kIsWeb) {
         deviceType = 'web';
-        deviceName = 'Web Browser';
+        final webInfo = await _deviceInfo.webBrowserInfo;
+        deviceName = '${webInfo.browserName.name} on ${webInfo.platform ?? "Web"}';
       } else if (Platform.isAndroid) {
         deviceType = 'android';
         final androidInfo = await _deviceInfo.androidInfo;

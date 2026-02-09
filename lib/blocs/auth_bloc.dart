@@ -183,7 +183,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> _registerDevice() async {
     if (_deviceService != null && _authService.currentAuthUser != null) {
       try {
-        await _deviceService!.registerDevice(_authService.currentAuthUser!.id);
+        await _deviceService.registerDevice(_authService.currentAuthUser!.id);
       } catch (e) {
         debugPrint('Failed to register device: $e');
       }
@@ -348,9 +348,23 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         bio: event.bio,
       );
       
+      // Register device for push notifications after profile completion
+      await _registerDevice();
+      
       emit(Authenticated(user));
     } catch (e) {
       emit(AuthError(e.toString()));
+    }
+  }
+  
+  /// Deactivate device before signing out
+  Future<void> _deactivateDevice() async {
+    if (_deviceService != null && _authService.currentAuthUser != null) {
+      try {
+        await _deviceService.deactivateDevice(_authService.currentAuthUser!.id);
+      } catch (e) {
+        debugPrint('Failed to deactivate device: $e');
+      }
     }
   }
   
@@ -361,6 +375,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
     
     try {
+      // Deactivate device before signing out
+      await _deactivateDevice();
+      
       await _authService.signOut();
       emit(const Unauthenticated());
     } catch (e) {
@@ -385,6 +402,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (exists) {
         final user = await _authService.getUserProfile();
         if (user != null && user.isProfileComplete) {
+          // Register device for push notifications on successful auth
+          await _registerDevice();
           emit(Authenticated(user));
         } else {
           emit(NeedsProfileCompletion(

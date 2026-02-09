@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "447275736592",
+    "project_id": "liftco",
+    "storage_bucket": "liftco.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:447275736592:android:c6c858ca403d6966b4f495",
+        "android_client_info": {
+          "package_name": "com.liftco.liftco"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "447275736592-af3jvh7ka50g0e0t52reinv0le25e0ou.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCCECIO3-QOU7mjd9CfPDabonX3Hd3af_E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "447275736592-af3jvh7ka50g0e0t52reinv0le25e0ou.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

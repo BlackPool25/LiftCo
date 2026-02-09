@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -18,21 +19,42 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="LiftCo - Find your gym buddy">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="gym_buddy">
+  <meta name="apple-mobile-web-app-title" content="LiftCo">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" href="favicon.png" />
 
-  <title>gym_buddy</title>
+  <title>LiftCo</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Firebase SDK for Web FCM -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js"></script>
+  <script>
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyBMxb4Kbs69CiEtLZsiEgVfI3vfrqY9Yi8",
+      authDomain: "liftco.firebaseapp.com",
+      projectId: "liftco",
+      storageBucket: "liftco.firebasestorage.app",
+      messagingSenderId: "447275736592",
+      appId: "1:447275736592:web:df8b4231556c7307b4f495",
+      measurementId: "G-4JD4C22E22"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+  </script>
 </head>
+
 <body>
   <script src="flutter_bootstrap.js" async></script>
 </body>
+
 </html>

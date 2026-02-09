@@ -140,19 +140,24 @@ class User extends Equatable {
   ];
 }
 
-// Enum values for dropdowns/cards
+// Common workout splits used in fitness
 class WorkoutSplit {
   static const List<Map<String, dynamic>> values = [
-    {'value': 'push', 'label': 'Push', 'icon': Icons.fitness_center},
-    {'value': 'pull', 'label': 'Pull', 'icon': Icons.fitness_center},
-    {'value': 'legs', 'label': 'Legs', 'icon': Icons.fitness_center},
-    {'value': 'full_body', 'label': 'Full Body', 'icon': Icons.accessibility},
-    {'value': 'upper', 'label': 'Upper', 'icon': Icons.fitness_center},
-    {'value': 'lower', 'label': 'Lower', 'icon': Icons.fitness_center},
-    {'value': 'cardio', 'label': 'Cardio', 'icon': Icons.directions_run},
-    {'value': 'yoga', 'label': 'Yoga', 'icon': Icons.self_improvement},
-    {'value': 'crossfit', 'label': 'CrossFit', 'icon': Icons.sports},
-    {'value': 'other', 'label': 'Other', 'icon': Icons.more_horiz},
+    // Primary training splits (how you organize your week)
+    {'value': 'ppl', 'label': 'Push Pull Legs', 'icon': Icons.fitness_center, 'description': '3-6 day split targeting push, pull, and leg days'},
+    {'value': 'upper_lower', 'label': 'Upper/Lower', 'icon': Icons.swap_vert, 'description': '4 day split alternating upper and lower body'},
+    {'value': 'bro_split', 'label': 'Bro Split', 'icon': Icons.calendar_today, 'description': '5 day body part split (chest, back, shoulders, arms, legs)'},
+    {'value': 'full_body', 'label': 'Full Body', 'icon': Icons.accessibility, 'description': '2-3 day whole body workouts'},
+    {'value': 'arnold', 'label': 'Arnold Split', 'icon': Icons.emoji_events, 'description': 'Chest/Back, Shoulders/Arms, Legs (6 days)'},
+    {'value': 'phul', 'label': 'PHUL', 'icon': Icons.trending_up, 'description': 'Power Hypertrophy Upper Lower (4 days)'},
+    {'value': 'phat', 'label': 'PHAT', 'icon': Icons.bolt, 'description': 'Power Hypertrophy Adaptive Training (5 days)'},
+    // Training focus types
+    {'value': 'strength', 'label': 'Strength/Powerlifting', 'icon': Icons.fitness_center, 'description': 'Focus on compound lifts and strength'},
+    {'value': 'cardio_focused', 'label': 'Cardio Focused', 'icon': Icons.directions_run, 'description': 'Primarily cardiovascular training'},
+    {'value': 'crossfit', 'label': 'CrossFit', 'icon': Icons.sports, 'description': 'High-intensity functional movements'},
+    {'value': 'yoga', 'label': 'Yoga/Mobility', 'icon': Icons.self_improvement, 'description': 'Flexibility and mobility focus'},
+    {'value': 'hybrid', 'label': 'Hybrid', 'icon': Icons.merge_type, 'description': 'Mixed approach combining multiple styles'},
+    {'value': 'other', 'label': 'Other', 'icon': Icons.more_horiz, 'description': 'Custom or unique routine'},
   ];
 }
 

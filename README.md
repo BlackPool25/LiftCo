@@ -191,7 +191,7 @@ flutter run -d chrome --web-port=3000
 | `gender` | varchar | nullable |
 | `experience_level` | enum | beginner, intermediate, advanced |
 | `preferred_time` | varchar | early_morning, morning, afternoon, evening |
-| `current_workout_split` | enum | push, pull, legs, full_body, etc. |
+| `current_workout_split` | varchar | See workout splits below |
 | `time_working_out_months` | integer | nullable |
 | `bio` | text | nullable |
 | `reputation_score` | integer | default: 100, CHECK: 0-100 |
@@ -200,8 +200,42 @@ flutter run -d chrome --web-port=3000
 | `created_at` | timestamptz | default: now() |
 | `updated_at` | timestamptz | default: now() |
 
+**Workout Split Values:**
+| Value | Label | Description |
+|-------|-------|-------------|
+| `ppl` | Push Pull Legs | 3-6 day PPL split |
+| `upper_lower` | Upper/Lower | 4 day upper/lower split |
+| `bro_split` | Bro Split | 5 day body part split |
+| `full_body` | Full Body | 2-3 day full body |
+| `arnold` | Arnold Split | Chest/Back, Shoulders/Arms, Legs |
+| `phul` | PHUL | Power Hypertrophy Upper Lower |
+| `phat` | PHAT | Power Hypertrophy Adaptive Training |
+| `strength` | Strength/Powerlifting | Focus on compound lifts |
+| `cardio_focused` | Cardio Focused | Primarily cardiovascular |
+| `crossfit` | CrossFit | High-intensity functional movements |
+| `yoga` | Yoga/Mobility | Flexibility focus |
+| `hybrid` | Hybrid | Mixed approach |
+| `other` | Other | Custom routines |
+
 **Constraints:**
 - `valid_contact_info`: Either `email` OR `phone_number` must be provided
+
+#### `user_devices`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | uuid | PK, auto-generated |
+| `user_id` | uuid | FK → users.id |
+| `fcm_token` | varchar | Firebase Cloud Messaging token |
+| `device_type` | varchar | web, android, ios |
+| `device_name` | varchar | Device model/browser info |
+| `is_active` | boolean | Whether device is active |
+| `last_seen_at` | timestamptz | Last activity timestamp |
+| `created_at` | timestamptz | When device was registered |
+
+**Device Registration Flow:**
+- Devices are automatically registered when a user logs in (OAuth, Magic Link, or OTP)
+- Devices are deactivated when the user logs out
+- FCM tokens are used for push notifications
 
 #### `gyms`
 | Column | Type | Description |
@@ -225,7 +259,7 @@ flutter run -d chrome --web-port=3000
 | `gym_id` | bigint | FK → gyms.id |
 | `host_user_id` | uuid | FK → users.id |
 | `title` | varchar | Session title |
-| `session_type` | enum | push, pull, legs, etc. |
+| `session_type` | varchar | Workout type for the session |
 | `description` | text | Session details |
 | `start_time` | timestamptz | Must be in future |
 | `duration_minutes` | integer | 1-480 minutes |
@@ -249,6 +283,7 @@ All tables have RLS enabled. Users can only:
 - Update their own profile
 - Read public gym information
 - Create/join sessions at their home gym
+- Manage their own device registrations
 
 ---
 

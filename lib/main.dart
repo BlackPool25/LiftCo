@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'blocs/auth_bloc.dart' as app_bloc;
 import 'config/theme.dart';
 import 'screens/main_shell.dart';
@@ -32,16 +33,17 @@ void main() async {
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
   
-  // Initialize Firebase (only on mobile/web, not during tests)
+  // Initialize Firebase for push notifications (all platforms)
   DeviceService? deviceService;
-  if (!kIsWeb) {
-    try {
-      await Firebase.initializeApp();
-      deviceService = DeviceService(Supabase.instance.client);
-      debugPrint('Firebase initialized successfully');
-    } catch (e) {
-      debugPrint('Firebase initialization skipped or failed: $e');
-    }
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    deviceService = DeviceService(Supabase.instance.client);
+    debugPrint('Firebase initialized successfully');
+  } catch (e) {
+    debugPrint('Firebase initialization failed: $e');
+    // Continue without push notifications if Firebase fails
   }
   
   runApp(LiftCoApp(deviceService: deviceService));
