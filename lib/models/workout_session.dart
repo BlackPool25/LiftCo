@@ -14,6 +14,7 @@ class WorkoutSession extends Equatable {
   final int currentCount;
   final String status;
   final String? intensityLevel;
+  final bool womenOnly;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -36,6 +37,7 @@ class WorkoutSession extends Equatable {
     required this.currentCount,
     required this.status,
     this.intensityLevel,
+    this.womenOnly = false,
     required this.createdAt,
     required this.updatedAt,
     this.host,
@@ -58,6 +60,7 @@ class WorkoutSession extends Equatable {
       currentCount: json['current_count'] as int,
       status: json['status'] as String,
       intensityLevel: json['intensity_level'] as String?,
+      womenOnly: json['women_only'] as bool? ?? false,
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
       host: json['host'] as Map<String, dynamic>?,
@@ -85,6 +88,7 @@ class WorkoutSession extends Equatable {
       'current_count': currentCount,
       'status': status,
       'intensity_level': intensityLevel,
+      'women_only': womenOnly,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -144,6 +148,8 @@ class WorkoutSession extends Equatable {
     return '${hours}h ${mins}m';
   }
 
+  bool get isWomenOnly => womenOnly;
+
   @override
   List<Object?> get props => [
     id,
@@ -158,6 +164,7 @@ class WorkoutSession extends Equatable {
     currentCount,
     status,
     intensityLevel,
+    womenOnly,
     createdAt,
     updatedAt,
     host,

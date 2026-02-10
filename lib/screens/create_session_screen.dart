@@ -48,6 +48,10 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
     'Extreme',
   ];
 
+  // Women safety feature
+  bool _womenOnly = false;
+  String? _currentUserGender;
+
   @override
   void initState() {
     super.initState();
@@ -55,9 +59,30 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
     _gymService = GymService(Supabase.instance.client);
     _selectedGym = widget.gym;
 
+    // Load current user gender for women-only feature
+    _loadCurrentUserGender();
+
     // If no gym is pre-selected, load the list of gyms
     if (widget.gym == null) {
       _loadGyms();
+    }
+  }
+
+  Future<void> _loadCurrentUserGender() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        final response = await Supabase.instance.client
+            .from('users')
+            .select('gender')
+            .eq('id', user.id)
+            .single();
+        setState(() {
+          _currentUserGender = response['gender'] as String?;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading user gender: $e');
     }
   }
 
@@ -331,6 +356,7 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
         durationMinutes: _durationMinutes,
         maxCapacity: _maxCapacity,
         intensityLevel: _intensityLevel,
+        womenOnly: _womenOnly,
       );
 
       if (mounted) {
@@ -813,6 +839,100 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
                         ).animate().fadeIn(delay: 300.ms),
 
                         const SizedBox(height: 20),
+
+                        // Women-Only Toggle (Female users only)
+                        if (_currentUserGender == 'female')
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildSectionTitle('Session Type'),
+                              const SizedBox(height: 8),
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _womenOnly = !_womenOnly;
+                                  });
+                                },
+                                child: GlassCard(
+                                  padding: const EdgeInsets.all(16),
+                                  borderRadius: 16,
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          gradient: _womenOnly
+                                              ? LinearGradient(
+                                                  colors: [
+                                                    Colors.pink[300]!,
+                                                    Colors.purple[400]!,
+                                                  ],
+                                                )
+                                              : null,
+                                          color: _womenOnly
+                                              ? null
+                                              : AppTheme.surfaceLight,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          _womenOnly
+                                              ? Icons.female
+                                              : Icons.groups,
+                                          color: _womenOnly
+                                              ? Colors.white
+                                              : AppTheme.textSecondary,
+                                          size: 22,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _womenOnly
+                                                  ? 'Women Only'
+                                                  : 'General Session',
+                                              style: const TextStyle(
+                                                color: AppTheme.textPrimary,
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              _womenOnly
+                                                  ? 'Only women can see and join this session'
+                                                  : 'Open to everyone',
+                                              style: TextStyle(
+                                                color: AppTheme.textMuted,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Switch.adaptive(
+                                        value: _womenOnly,
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _womenOnly = value;
+                                          });
+                                        },
+                                        activeColor: Colors.pink[400],
+                                        activeTrackColor: Colors.pink[200]!
+                                            .withValues(alpha: 0.5),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+                          ),
 
                         // Description
                         _buildSectionTitle('Description (Optional)'),

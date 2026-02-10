@@ -104,35 +104,38 @@ class _GradientButtonState extends State<GradientButton>
             ),
           );
         },
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (widget.isLoading)
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 120, minHeight: 24),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (widget.isLoading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              else ...[
+                if (widget.icon != null) ...[
+                  Icon(widget.icon, color: Colors.white, size: 20),
+                  const SizedBox(width: 10),
+                ],
+                Text(
+                  widget.text,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
+                  ),
                 ),
-              )
-            else ...[
-              if (widget.icon != null) ...[
-                Icon(widget.icon, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
               ],
-              Text(
-                widget.text,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.3,
-                ),
-              ),
             ],
-          ],
+          ),
         ),
       ),
     );

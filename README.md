@@ -13,6 +13,7 @@ LiftCo helps fitness enthusiasts find workout partners at their specific gym thr
 ### Key Features
 
 - **Session-Based Matching** - Join specific workout sessions instead of permanent buddy matching
+- **Women Safety Feature** - Women-only sessions with gender-based access control and privacy protection
 - **Anti-Dating Design** - Stats-first profiles, no swiping, contextual chat only
 - **Multiple Authentication Options** - Email OTP, Phone OTP, Google OAuth, Apple Sign-In
 - **Visual Profile Setup** - Interactive cards for selecting workout preferences instead of boring dropdowns
@@ -172,6 +173,72 @@ flutter run -d chrome --web-port=3000
 
 ---
 
+## 🛡️ Women Safety Feature
+
+LiftCo prioritizes user safety with a comprehensive women-only session feature that creates safe spaces for female users.
+
+### Features
+
+**1. Women-Only Sessions**
+- Female users can create sessions exclusively for women
+- Sessions marked with "Women Only" badge (pink/purple gradient)
+- Only visible to female users in the app
+- RLS policies enforce gender-based access control at database level
+
+**2. Female-Only Mode Toggle**
+- Quick toggle button in home screen app bar (top right, female users only)
+- When enabled, shows only women-only sessions
+- Toggle states: "All" (shows all sessions) / "Women" (women-only only)
+- Pink/purple gradient styling when active
+
+**3. Session Creation**
+- Female users see "Session Type" toggle when creating sessions
+- Options: "General Session" (open to all) or "Women Only" (female-only)
+- Visual indicator with female icon and descriptive text
+- Switch control with pink accent colors
+
+**4. Visual Indicators**
+- Women-only sessions display badge in session cards
+- Badge shows female icon + "Women" text
+- Pink/purple gradient styling consistent across UI
+- Badge appears next to session type in card listings
+
+**5. Security & Privacy**
+- **RLS Policy**: Only female users can see women_only = true sessions
+- **RLS Policy**: Only female users can create women-only sessions
+- **RLS Policy**: Only female users can join women-only sessions
+- Database-level enforcement prevents unauthorized access
+
+### Database Schema
+
+**workout_sessions.women_only** (boolean, default: false)
+- Marks session as women-only when true
+- Indexed for query performance
+- Enforced by RLS policies
+
+**Users Table Gender Field**
+- Required for women-only feature enforcement
+- Values: 'male', 'female', 'non_binary', 'prefer_not_to_say'
+- Only 'female' users can create/join women-only sessions
+
+### Implementation Details
+
+**Files Modified:**
+- `supabase/migrations/20250210200000_add_women_safety_feature.sql` - Database migration
+- `lib/models/workout_session.dart` - Added womenOnly field
+- `lib/screens/create_session_screen.dart` - Added women-only toggle UI
+- `lib/screens/home_tab.dart` - Added female-only mode toggle and filtering
+- `lib/services/session_service.dart` - Updated createSession with womenOnly parameter
+- `lib/services/gym_service.dart` - Updated queries to respect women-only sessions
+
+**Security:**
+All access control enforced at database level via Row Level Security policies:
+- SELECT: Women-only sessions only visible to female users
+- INSERT: Only female users can create women-only sessions
+- session_members INSERT: Only female users can join women-only sessions
+
+---
+
 ## 🗄️ Database Schema
 
 ### Supabase Project
@@ -266,6 +333,7 @@ flutter run -d chrome --web-port=3000
 | `max_capacity` | integer | 1-20 (default: 4) |
 | `current_count` | integer | Current participants |
 | `status` | enum | upcoming, in_progress, finished, cancelled |
+| `women_only` | boolean | Women-only session flag (default: false) |
 
 #### `session_members`
 | Column | Type | Description |

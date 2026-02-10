@@ -7,6 +7,7 @@ import '../config/theme.dart';
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
   final double borderRadius;
   final bool hasBorder;
   final Color? backgroundColor;
@@ -18,6 +19,7 @@ class GlassCard extends StatelessWidget {
     super.key,
     required this.child,
     this.padding,
+    this.margin,
     this.borderRadius = 24,
     this.hasBorder = true,
     this.backgroundColor,
@@ -28,7 +30,7 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final card = ClipRRect(
+    Widget card = ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blurAmount, sigmaY: blurAmount),
@@ -48,6 +50,10 @@ class GlassCard extends StatelessWidget {
         ),
       ),
     );
+
+    if (margin != null) {
+      card = Container(margin: margin, child: card);
+    }
 
     if (onTap != null) {
       return GestureDetector(onTap: onTap, child: card);

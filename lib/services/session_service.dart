@@ -18,6 +18,7 @@ class SessionService {
     required int durationMinutes,
     int maxCapacity = 4,
     String? intensityLevel,
+    bool womenOnly = false,
   }) async {
     try {
       final user = _supabase.auth.currentUser;
@@ -47,6 +48,7 @@ class SessionService {
             'current_count': 1,
             'status': 'upcoming',
             'intensity_level': intensityLevel,
+            'women_only': womenOnly,
           })
           .select()
           .single();
