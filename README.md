@@ -177,6 +177,30 @@ flutter run -d chrome --web-port=3000
 
 LiftCo prioritizes user safety with a comprehensive women-only session feature that creates safe spaces for female users.
 
+### ⚠️ IMPORTANT: Required Database Setup
+
+**You MUST run the SQL migration to enable the women safety feature:**
+
+1. Go to your Supabase Dashboard → SQL Editor
+2. Run the migration file: `supabase/migrations/20250210220000_fix_session_members_schema_and_add_women_safety.sql`
+3. This migration:
+   - Fixes the session_members.session_id column type (converts from bigint to uuid)
+   - Creates proper foreign key relationship with workout_sessions
+   - Adds the `women_only` column
+   - Creates the RLS policies that enforce gender-based access control
+
+**Without running this migration:**
+- ❌ Women-only sessions will be visible to everyone
+- ❌ No gender-based filtering will occur
+- ❌ Security policies will not be enforced
+- ❌ Schema type mismatch errors will occur
+
+### ⚠️ DATA LOSS WARNING
+
+**This migration will TRUNCATE (delete all data from) the session_members table** to fix the column type from bigint to uuid. This is necessary because you cannot directly convert bigint to uuid.
+
+If you have important session membership data that needs to be preserved, please back it up before running this migration.
+
 ### Features
 
 **1. Women-Only Sessions**
@@ -224,7 +248,7 @@ LiftCo prioritizes user safety with a comprehensive women-only session feature t
 ### Implementation Details
 
 **Files Modified:**
-- `supabase/migrations/20250210200000_add_women_safety_feature.sql` - Database migration
+- `supabase/migrations/20250210200000_add_women_safety_feature.sql` - Database migration (REQUIRED)
 - `lib/models/workout_session.dart` - Added womenOnly field
 - `lib/screens/create_session_screen.dart` - Added women-only toggle UI
 - `lib/screens/home_tab.dart` - Added female-only mode toggle and filtering

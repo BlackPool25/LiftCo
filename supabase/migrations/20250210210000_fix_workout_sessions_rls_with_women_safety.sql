@@ -1,27 +1,40 @@
--- Women Safety Feature Migration - FIXED VERSION
--- Adds women_only column to workout_sessions and updates RLS policies
--- Uses explicit type casting to handle session_id type mismatch
+-- Fix RLS policies for workout_sessions table
+-- This allows authenticated users to create sessions and manage their own sessions
+-- Includes women-only session security enforcement
 
--- Add women_only column to workout_sessions
-ALTER TABLE workout_sessions ADD COLUMN IF NOT EXISTS women_only BOOLEAN DEFAULT false;
-
--- Create index for better query performance
-CREATE INDEX IF NOT EXISTS idx_workout_sessions_women_only ON workout_sessions(women_only);
-
--- Add comment explaining the column
-COMMENT ON COLUMN workout_sessions.women_only IS 'If true, only female users can see and join this session. For women safety feature.';
-
--- Enable RLS on workout_sessions
+-- Enable RLS if not already enabled
 ALTER TABLE workout_sessions ENABLE ROW LEVEL SECURITY;
 
--- Drop existing policies to recreate with women_only logic
-DROP POLICY IF EXISTS "Allow users to read sessions" ON workout_sessions;
+-- Drop existing policies to avoid conflicts
 DROP POLICY IF EXISTS "Allow users to create sessions" ON workout_sessions;
+DROP POLICY IF EXISTS "Allow users to read sessions" ON workout_sessions;
 DROP POLICY IF EXISTS "Allow hosts to update their sessions" ON workout_sessions;
 DROP POLICY IF EXISTS "Allow users to update sessions" ON workout_sessions;
-DROP POLICY IF EXISTS "Allow users to join sessions" ON session_members;
+DROP POLICY IF EXISTS "Allow users to increment session count" ON workout_sessions;
 
--- Create new SELECT policy with women_only filtering
+-- Policy 1: Allow authenticated users to create sessions
+-- Only female users can create women-only sessions
+CREATE POLICY "Allow users to create sessions"
+  ON workout_sessions
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    auth.uid() = host_user_id
+    AND (
+      -- If creating women_only session, user must be female
+      women_only = false 
+      OR 
+      (
+        women_only = true 
+        AND auth.uid() IN (
+          SELECT id FROM users WHERE gender = 'female'
+        )
+      )
+    )
+  );
+
+-- Policy 2: Allow users to read sessions with women-only filtering
+-- Women-only sessions are only visible to female users
 CREATE POLICY "Allow users to read sessions"
   ON workout_sessions
   FOR SELECT
@@ -39,26 +52,7 @@ CREATE POLICY "Allow users to read sessions"
     )
   );
 
--- Create new INSERT policy ensuring only females can create women-only sessions
-CREATE POLICY "Allow users to create sessions"
-  ON workout_sessions
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (
-    auth.uid() = host_user_id
-    AND (
-      women_only = false 
-      OR 
-      (
-        women_only = true 
-        AND auth.uid() IN (
-          SELECT id FROM users WHERE gender = 'female'
-        )
-      )
-    )
-  );
-
--- Allow hosts to update their own sessions
+-- Policy 3: Allow hosts to update their own sessions
 CREATE POLICY "Allow hosts to update their sessions"
   ON workout_sessions
   FOR UPDATE
@@ -66,15 +60,16 @@ CREATE POLICY "Allow hosts to update their sessions"
   USING (auth.uid() = host_user_id)
   WITH CHECK (auth.uid() = host_user_id);
 
--- Update session_members policies
+-- Also ensure session_members has proper policies
 ALTER TABLE session_members ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow users to join sessions" ON session_members;
 DROP POLICY IF EXISTS "Allow users to read session members" ON session_members;
 DROP POLICY IF EXISTS "Allow users to leave sessions" ON session_members;
+DROP POLICY IF EXISTS "Allow users to update membership" ON session_members;
 
+-- Policy 1: Allow authenticated users to join sessions
 -- Only female users can join women-only sessions
--- Using explicit cast to handle type mismatch
 CREATE POLICY "Allow users to join sessions"
   ON session_members
   FOR INSERT
@@ -82,16 +77,18 @@ CREATE POLICY "Allow users to join sessions"
   WITH CHECK (
     auth.uid() = user_id
     AND (
+      -- Check if session is women_only
       EXISTS (
         SELECT 1 FROM workout_sessions ws
-        WHERE ws.id = session_id::uuid
+        WHERE ws.id = session_id 
         AND ws.women_only = false
       )
       OR
+      -- If women_only session, only females can join
       (
         EXISTS (
           SELECT 1 FROM workout_sessions ws
-          WHERE ws.id = session_id::uuid
+          WHERE ws.id = session_id 
           AND ws.women_only = true
         )
         AND auth.uid() IN (
@@ -101,14 +98,14 @@ CREATE POLICY "Allow users to join sessions"
     )
   );
 
--- Allow all to read session members
+-- Policy 2: Allow all users to read session members
 CREATE POLICY "Allow users to read session members"
   ON session_members
   FOR SELECT
   TO authenticated, anon
   USING (true);
 
--- Allow users to update their own membership
+-- Policy 3: Allow users to update their own membership (leave/cancel)
 CREATE POLICY "Allow users to leave sessions"
   ON session_members
   FOR UPDATE
@@ -118,14 +115,3 @@ CREATE POLICY "Allow users to leave sessions"
 
 -- Grant necessary permissions
 GRANT SELECT ON users TO authenticated, anon;
-
--- Verify the migration
-SELECT 
-  'workout_sessions.women_only column added successfully' as status,
-  column_name, 
-  data_type, 
-  column_default,
-  is_nullable
-FROM information_schema.columns 
-WHERE table_name = 'workout_sessions' 
-AND column_name = 'women_only';
