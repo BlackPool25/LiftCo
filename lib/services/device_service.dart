@@ -11,8 +11,8 @@ class DeviceService {
   final DeviceInfoPlugin _deviceInfo;
 
   DeviceService(this._supabase)
-      : _messaging = FirebaseMessaging.instance,
-        _deviceInfo = DeviceInfoPlugin();
+    : _messaging = FirebaseMessaging.instance,
+      _deviceInfo = DeviceInfoPlugin();
 
   /// Register device with FCM token for push notifications
   Future<void> registerDevice(String userId) async {
@@ -40,19 +40,18 @@ class DeviceService {
       final deviceInfo = await _getDeviceInfo();
 
       // Upsert device record (update if exists, insert if new)
-      await _supabase.from('user_devices').upsert(
-        {
-          'user_id': userId,
-          'fcm_token': fcmToken,
-          'device_type': deviceInfo['type'],
-          'device_name': deviceInfo['name'],
-          'is_active': true,
-          'last_seen_at': DateTime.now().toIso8601String(),
-        },
-        onConflict: 'user_id, fcm_token',
-      );
+      await _supabase.from('user_devices').upsert({
+        'user_id': userId,
+        'fcm_token': fcmToken,
+        'device_type': deviceInfo['type'],
+        'device_name': deviceInfo['name'],
+        'is_active': true,
+        'last_seen_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'user_id, fcm_token');
 
-      debugPrint('Device registered successfully with token: ${fcmToken.substring(0, 20)}...');
+      debugPrint(
+        'Device registered successfully with token: ${fcmToken.substring(0, 20)}...',
+      );
 
       // Listen for token refresh
       _messaging.onTokenRefresh.listen((newToken) async {
@@ -64,7 +63,11 @@ class DeviceService {
   }
 
   /// Update FCM token when it refreshes
-  Future<void> _updateFcmToken(String userId, String oldToken, String newToken) async {
+  Future<void> _updateFcmToken(
+    String userId,
+    String oldToken,
+    String newToken,
+  ) async {
     try {
       await _supabase
           .from('user_devices')
@@ -90,7 +93,8 @@ class DeviceService {
       if (kIsWeb) {
         deviceType = 'web';
         final webInfo = await _deviceInfo.webBrowserInfo;
-        deviceName = '${webInfo.browserName.name} on ${webInfo.platform ?? "Web"}';
+        deviceName =
+            '${webInfo.browserName.name} on ${webInfo.platform ?? "Web"}';
       } else if (Platform.isAndroid) {
         deviceType = 'android';
         final androidInfo = await _deviceInfo.androidInfo;
@@ -104,10 +108,7 @@ class DeviceService {
       debugPrint('Failed to get device info: $e');
     }
 
-    return {
-      'type': deviceType,
-      'name': deviceName,
-    };
+    return {'type': deviceType, 'name': deviceName};
   }
 
   /// Deactivate device (e.g., on logout)
@@ -139,9 +140,7 @@ class DeviceService {
 
       await _supabase
           .from('user_devices')
-          .update({
-            'last_seen_at': DateTime.now().toIso8601String(),
-          })
+          .update({'last_seen_at': DateTime.now().toIso8601String()})
           .eq('user_id', userId)
           .eq('fcm_token', fcmToken);
     } catch (e) {

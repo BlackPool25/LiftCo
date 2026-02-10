@@ -42,12 +42,14 @@ class _GradientButtonState extends State<GradientButton>
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
-    _glowAnimation = Tween<double>(begin: 1.0, end: 0.5).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.96,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _glowAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.5,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
   }
 
   @override
@@ -58,10 +60,9 @@ class _GradientButtonState extends State<GradientButton>
 
   @override
   Widget build(BuildContext context) {
-    final colors = widget.gradientColors ?? [
-      AppTheme.primaryOrange,
-      AppTheme.primaryCoral,
-    ];
+    final colors =
+        widget.gradientColors ??
+        [AppTheme.primaryOrange, AppTheme.primaryCoral];
 
     return GestureDetector(
       onTapDown: (_) => _controller.forward(),
@@ -79,7 +80,8 @@ class _GradientButtonState extends State<GradientButton>
             scale: _scaleAnimation.value,
             child: Container(
               width: widget.width,
-              padding: widget.padding ??
+              padding:
+                  widget.padding ??
                   const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -90,7 +92,9 @@ class _GradientButtonState extends State<GradientButton>
                 borderRadius: BorderRadius.circular(widget.borderRadius),
                 boxShadow: [
                   BoxShadow(
-                    color: colors.first.withValues(alpha: 0.4 * _glowAnimation.value),
+                    color: colors.first.withValues(
+                      alpha: 0.4 * _glowAnimation.value,
+                    ),
                     blurRadius: 20,
                     offset: const Offset(0, 8),
                   ),
@@ -172,9 +176,10 @@ class _GlassButtonState extends State<GlassButton>
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.96,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
   }
 
   @override
@@ -201,15 +206,13 @@ class _GlassButtonState extends State<GlassButton>
             scale: _scaleAnimation.value,
             child: Container(
               width: widget.width,
-              padding: widget.padding ??
+              padding:
+                  widget.padding ??
                   const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
               decoration: BoxDecoration(
                 color: AppTheme.surface,
                 borderRadius: BorderRadius.circular(widget.borderRadius),
-                border: Border.all(
-                  color: AppTheme.surfaceBorder,
-                  width: 1.5,
-                ),
+                border: Border.all(color: AppTheme.surfaceBorder, width: 1.5),
               ),
               child: child,
             ),
@@ -225,7 +228,9 @@ class _GlassButtonState extends State<GlassButton>
                 height: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.textSecondary),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    AppTheme.textSecondary,
+                  ),
                 ),
               )
             else ...[

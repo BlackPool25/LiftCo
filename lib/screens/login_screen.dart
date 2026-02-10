@@ -13,7 +13,7 @@ class LoginScreen extends StatefulWidget {
   /// If provided, the login screen will show the magic link sent confirmation UI
   /// with this email address displayed.
   final String? magicLinkEmail;
-  
+
   const LoginScreen({super.key, this.magicLinkEmail});
 
   @override
@@ -24,11 +24,12 @@ class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
-  final List<TextEditingController> _otpControllers = 
-      List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _otpFocusNodes = 
-      List.generate(6, (_) => FocusNode());
-  
+  final List<TextEditingController> _otpControllers = List.generate(
+    6,
+    (_) => TextEditingController(),
+  );
+  final List<FocusNode> _otpFocusNodes = List.generate(6, (_) => FocusNode());
+
   bool _isEmail = true;
   bool _otpSent = false;
   bool _magicLinkSent = false;
@@ -66,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen>
       }
       setState(() {
         _contactInfo = email;
-        _magicLinkSent = true;  // Show confirmation UI immediately
+        _magicLinkSent = true; // Show confirmation UI immediately
       });
       context.read<AuthBloc>().add(SignInWithEmailRequested(email));
     } else {
@@ -146,65 +147,72 @@ class _LoginScreenState extends State<LoginScreen>
             children: [
               // Animated gradient background
               _buildBackground(),
-              
+
               // Content
               SafeArea(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      minHeight: MediaQuery.of(context).size.height - 
-                                 MediaQuery.of(context).padding.top - 
-                                 MediaQuery.of(context).padding.bottom,
+                      minHeight:
+                          MediaQuery.of(context).size.height -
+                          MediaQuery.of(context).padding.top -
+                          MediaQuery.of(context).padding.bottom,
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        SizedBox(height: MediaQuery.of(context).size.height * 0.04),
-                      
-                      // Logo & Title
-                      _buildHeader()
-                          .animate()
-                          .fadeIn(duration: 600.ms)
-                          .slideY(begin: -0.2, end: 0),
-                      
-                      const SizedBox(height: 48),
-                      
-                      // Main content card
-                      GlassCard(
-                        padding: const EdgeInsets.all(28),
-                        borderRadius: 28,
-                        child: _magicLinkSent
-                            ? _buildMagicLinkSentContent()
-                            : _otpSent
-                                ? _buildOTPContent()
-                                : state is AuthLoading
-                                    ? const Center(
-                                        child: Padding(
-                                          padding: EdgeInsets.all(40),
-                                          child: CircularProgressIndicator(
-                                            color: AppTheme.primaryOrange,
-                                          ),
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.04,
+                        ),
+
+                        // Logo & Title
+                        _buildHeader()
+                            .animate()
+                            .fadeIn(duration: 600.ms)
+                            .slideY(begin: -0.2, end: 0),
+
+                        const SizedBox(height: 48),
+
+                        // Main content card
+                        GlassCard(
+                              padding: const EdgeInsets.all(28),
+                              borderRadius: 28,
+                              child: _magicLinkSent
+                                  ? _buildMagicLinkSentContent()
+                                  : _otpSent
+                                  ? _buildOTPContent()
+                                  : state is AuthLoading
+                                  ? const Center(
+                                      child: Padding(
+                                        padding: EdgeInsets.all(40),
+                                        child: CircularProgressIndicator(
+                                          color: AppTheme.primaryOrange,
                                         ),
-                                      )
-                                    : _buildLoginContent(),
-                      ).animate().fadeIn(delay: 200.ms, duration: 500.ms)
-                          .slideY(begin: 0.1, end: 0),
-                      
-                      const SizedBox(height: 32),
-                      
-                      // Terms text
-                      if (!_otpSent && !_magicLinkSent)
-                        Center(
-                          child: Text(
-                            'By continuing, you agree to our Terms & Privacy Policy',
-                            style: Theme.of(context).textTheme.bodySmall,
-                            textAlign: TextAlign.center,
-                          ),
-                        ).animate().fadeIn(delay: 400.ms),
-                      
-                      SizedBox(height: MediaQuery.of(context).size.height * 0.03),
+                                      ),
+                                    )
+                                  : _buildLoginContent(),
+                            )
+                            .animate()
+                            .fadeIn(delay: 200.ms, duration: 500.ms)
+                            .slideY(begin: 0.1, end: 0),
+
+                        const SizedBox(height: 32),
+
+                        // Terms text
+                        if (!_otpSent && !_magicLinkSent)
+                          Center(
+                            child: Text(
+                              'By continuing, you agree to our Terms & Privacy Policy',
+                              style: Theme.of(context).textTheme.bodySmall,
+                              textAlign: TextAlign.center,
+                            ),
+                          ).animate().fadeIn(delay: 400.ms),
+
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.03,
+                        ),
                       ],
                     ),
                   ),
@@ -219,50 +227,58 @@ class _LoginScreenState extends State<LoginScreen>
 
   Widget _buildBackground() {
     return Container(
-      decoration: const BoxDecoration(
-        gradient: AppTheme.surfaceGradient,
-      ),
+      decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
       child: Stack(
         children: [
           // Floating gradient orbs
           Positioned(
-            top: -100,
-            right: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    AppTheme.primaryPurple.withValues(alpha: 0.3),
-                    AppTheme.primaryPurple.withValues(alpha: 0),
-                  ],
+                top: -100,
+                right: -100,
+                child: Container(
+                  width: 300,
+                  height: 300,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        AppTheme.primaryPurple.withValues(alpha: 0.3),
+                        AppTheme.primaryPurple.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          )
+              )
               .animate(onPlay: (c) => c.repeat(reverse: true))
-              .moveY(begin: 0, end: 30, duration: 4.seconds, curve: Curves.easeInOut),
+              .moveY(
+                begin: 0,
+                end: 30,
+                duration: 4.seconds,
+                curve: Curves.easeInOut,
+              ),
           Positioned(
-            bottom: 100,
-            left: -80,
-            child: Container(
-              width: 250,
-              height: 250,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    AppTheme.accentCyan.withValues(alpha: 0.2),
-                    AppTheme.accentCyan.withValues(alpha: 0),
-                  ],
+                bottom: 100,
+                left: -80,
+                child: Container(
+                  width: 250,
+                  height: 250,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        AppTheme.accentCyan.withValues(alpha: 0.2),
+                        AppTheme.accentCyan.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          )
+              )
               .animate(onPlay: (c) => c.repeat(reverse: true))
-              .moveY(begin: 0, end: -20, duration: 3.seconds, curve: Curves.easeInOut),
+              .moveY(
+                begin: 0,
+                end: -20,
+                duration: 3.seconds,
+                curve: Curves.easeInOut,
+              ),
         ],
       ),
     );
@@ -295,9 +311,9 @@ class _LoginScreenState extends State<LoginScreen>
         const SizedBox(height: 32),
         Text(
           'Welcome to',
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: AppTheme.textSecondary,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(color: AppTheme.textSecondary),
         ),
         const SizedBox(height: 4),
         ShaderMask(
@@ -307,9 +323,9 @@ class _LoginScreenState extends State<LoginScreen>
           child: Text(
             'LiftCo',
             style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
         const SizedBox(height: 8),
@@ -343,7 +359,10 @@ class _LoginScreenState extends State<LoginScreen>
                   style: const TextStyle(color: AppTheme.textPrimary),
                   decoration: const InputDecoration(
                     hintText: 'Enter your email',
-                    prefixIcon: Icon(Icons.email_outlined, color: AppTheme.textMuted),
+                    prefixIcon: Icon(
+                      Icons.email_outlined,
+                      color: AppTheme.textMuted,
+                    ),
                   ),
                 )
               : TextField(
@@ -355,7 +374,10 @@ class _LoginScreenState extends State<LoginScreen>
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: const InputDecoration(
                     hintText: 'Enter your phone number',
-                    prefixIcon: Icon(Icons.phone_outlined, color: AppTheme.textMuted),
+                    prefixIcon: Icon(
+                      Icons.phone_outlined,
+                      color: AppTheme.textMuted,
+                    ),
                     prefixText: '+1 ',
                   ),
                 ),
@@ -365,10 +387,7 @@ class _LoginScreenState extends State<LoginScreen>
         // Continue button
         SizedBox(
           width: double.infinity,
-          child: GradientButton(
-            text: 'Continue',
-            onPressed: _sendOTP,
-          ),
+          child: GradientButton(text: 'Continue', onPressed: _sendOTP),
         ),
 
         const SizedBox(height: 28),
@@ -396,8 +415,11 @@ class _LoginScreenState extends State<LoginScreen>
             Expanded(
               child: OAuthButton(
                 text: 'Google',
-                icon: const FaIcon(FontAwesomeIcons.google,
-                    size: 20, color: Colors.white),
+                icon: const FaIcon(
+                  FontAwesomeIcons.google,
+                  size: 20,
+                  color: Colors.white,
+                ),
                 onPressed: _signInWithGoogle,
               ),
             ),
@@ -405,8 +427,11 @@ class _LoginScreenState extends State<LoginScreen>
             Expanded(
               child: OAuthButton(
                 text: 'Apple',
-                icon: const FaIcon(FontAwesomeIcons.apple,
-                    size: 22, color: Colors.white),
+                icon: const FaIcon(
+                  FontAwesomeIcons.apple,
+                  size: 22,
+                  color: Colors.white,
+                ),
                 onPressed: _signInWithApple,
               ),
             ),
@@ -430,7 +455,7 @@ class _LoginScreenState extends State<LoginScreen>
         builder: (context, constraints) {
           final availableWidth = constraints.maxWidth;
           final buttonWidth = availableWidth / 2;
-          
+
           return Stack(
             children: [
               // Animated sliding indicator
@@ -466,7 +491,9 @@ class _LoginScreenState extends State<LoginScreen>
                         child: AnimatedDefaultTextStyle(
                           duration: const Duration(milliseconds: 200),
                           style: TextStyle(
-                            color: _isEmail ? Colors.white : AppTheme.textSecondary,
+                            color: _isEmail
+                                ? Colors.white
+                                : AppTheme.textSecondary,
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
                           ),
@@ -483,7 +510,9 @@ class _LoginScreenState extends State<LoginScreen>
                         child: AnimatedDefaultTextStyle(
                           duration: const Duration(milliseconds: 200),
                           style: TextStyle(
-                            color: !_isEmail ? Colors.white : AppTheme.textSecondary,
+                            color: !_isEmail
+                                ? Colors.white
+                                : AppTheme.textSecondary,
                             fontWeight: FontWeight.w600,
                             fontSize: 14,
                           ),
@@ -510,7 +539,7 @@ class _LoginScreenState extends State<LoginScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 16),
-          
+
           // Success icon with gradient background
           Container(
             padding: const EdgeInsets.all(24),
@@ -532,7 +561,7 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
           const SizedBox(height: 32),
-          
+
           // Title
           Text(
             'Check your email!',
@@ -543,17 +572,17 @@ class _LoginScreenState extends State<LoginScreen>
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
-          
+
           // Subtitle with email
           Text(
             'We sent a magic link to',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: AppTheme.textSecondary,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
-          
+
           // Email address highlighted
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -573,7 +602,7 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
           const SizedBox(height: 16),
-          
+
           // Instruction text
           Text(
             'Click the link in the email to sign in.\nThe link will expire in 1 hour.',
@@ -584,7 +613,7 @@ class _LoginScreenState extends State<LoginScreen>
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
-          
+
           // Back to login button - full width
           SizedBox(
             width: double.infinity,
@@ -608,12 +637,14 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
           const SizedBox(height: 16),
-          
+
           // Resend link
           TextButton(
             onPressed: () {
               if (_contactInfo.isNotEmpty) {
-                context.read<AuthBloc>().add(SignInWithEmailRequested(_contactInfo));
+                context.read<AuthBloc>().add(
+                  SignInWithEmailRequested(_contactInfo),
+                );
               }
             },
             child: RichText(
@@ -754,10 +785,7 @@ class _LoginScreenState extends State<LoginScreen>
         // Verify button
         SizedBox(
           width: double.infinity,
-          child: GradientButton(
-            text: 'Verify',
-            onPressed: _verifyOTP,
-          ),
+          child: GradientButton(text: 'Verify', onPressed: _verifyOTP),
         ),
         const SizedBox(height: 16),
 

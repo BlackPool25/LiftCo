@@ -32,22 +32,23 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: AppTheme.surfaceGradient,
-        ),
+        decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
         child: Stack(
           children: [
             // Tab content
             IndexedStack(
               index: _currentIndex,
               children: [
-                HomeTab(user: widget.user, onNavigateToGyms: () => _navigateToTab(1)),
+                HomeTab(
+                  user: widget.user,
+                  onNavigateToGyms: () => _navigateToTab(1),
+                ),
                 const GymsScreen(),
                 const ScheduleScreen(),
                 SettingsScreen(user: widget.user),
               ],
             ),
-            
+
             // Floating bottom navigation bar
             Positioned(
               left: 0,

@@ -1,17 +1,192 @@
 // lib/screens/settings_screen.dart
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../blocs/auth_bloc.dart';
 import '../config/theme.dart';
 import '../models/user.dart' as app_user;
+import '../services/notification_service.dart';
 import '../widgets/glass_card.dart';
 
 /// Settings screen - profile and app settings
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   final app_user.User user;
 
   const SettingsScreen({super.key, required this.user});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late NotificationService _notificationService;
+  bool _notificationsEnabled = false;
+  bool _isLoading = false;
+  String? _fcmToken;
+
+  @override
+  void initState() {
+    super.initState();
+    _notificationService = NotificationService(Supabase.instance.client);
+    _checkNotificationStatus();
+    _getFcmToken();
+  }
+
+  Future<void> _getFcmToken() async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      setState(() {
+        _fcmToken = token;
+      });
+    } catch (e) {
+      debugPrint('Failed to get FCM token: $e');
+    }
+  }
+
+  Future<void> _checkNotificationStatus() async {
+    try {
+      final enabled = await _notificationService.areNotificationsEnabled();
+      setState(() {
+        _notificationsEnabled = enabled;
+      });
+    } catch (e) {
+      debugPrint('Failed to check notification status: $e');
+    }
+  }
+
+  Future<Map<String, String>> _getDeviceInfo() async {
+    final deviceInfo = DeviceInfoPlugin();
+    String deviceType = 'unknown';
+    String deviceName = 'Unknown Device';
+
+    try {
+      if (kIsWeb) {
+        deviceType = 'web';
+        final webInfo = await deviceInfo.webBrowserInfo;
+        deviceName =
+            '${webInfo.browserName.name} on ${webInfo.platform ?? "Web"}';
+      } else if (Platform.isAndroid) {
+        deviceType = 'android';
+        final androidInfo = await deviceInfo.androidInfo;
+        deviceName = '${androidInfo.brand} ${androidInfo.model}';
+      } else if (Platform.isIOS) {
+        deviceType = 'ios';
+        final iosInfo = await deviceInfo.iosInfo;
+        deviceName = '${iosInfo.name} (${iosInfo.model})';
+      }
+    } catch (e) {
+      debugPrint('Failed to get device info: $e');
+    }
+
+    return {'type': deviceType, 'name': deviceName};
+  }
+
+  Future<void> _toggleNotifications(bool value) async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    // Store scaffold messenger before async operations
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    try {
+      if (value) {
+        // Enable notifications
+        final settings = await FirebaseMessaging.instance.requestPermission(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+
+        if (!mounted) return;
+
+        if (settings.authorizationStatus == AuthorizationStatus.denied) {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Notification permission denied. Please enable in settings.',
+              ),
+              backgroundColor: AppTheme.error,
+            ),
+          );
+          return;
+        }
+
+        final token = await FirebaseMessaging.instance.getToken();
+
+        if (!mounted) return;
+
+        if (token == null) {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('Failed to get notification token'),
+              backgroundColor: AppTheme.error,
+            ),
+          );
+          return;
+        }
+
+        final deviceInfo = await _getDeviceInfo();
+        await _notificationService.enableNotifications(
+          token,
+          deviceInfo['type']!,
+          deviceInfo['name']!,
+        );
+
+        if (!mounted) return;
+
+        setState(() {
+          _notificationsEnabled = true;
+          _fcmToken = token;
+        });
+
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Notifications enabled successfully'),
+            backgroundColor: AppTheme.success,
+          ),
+        );
+      } else {
+        // Disable notifications
+        if (_fcmToken != null) {
+          await _notificationService.disableNotifications(_fcmToken!);
+        }
+
+        if (!mounted) return;
+
+        setState(() {
+          _notificationsEnabled = false;
+        });
+
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('Notifications disabled'),
+            backgroundColor: AppTheme.textSecondary,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('Failed to update notifications: $e'),
+          backgroundColor: AppTheme.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +201,7 @@ class SettingsScreen extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineLarge,
             ).animate().fadeIn().slideY(begin: -0.2),
             const SizedBox(height: 32),
-            
+
             // Profile section
             GlassCard(
               padding: const EdgeInsets.all(20),
@@ -42,7 +217,9 @@ class SettingsScreen extends StatelessWidget {
                     ),
                     child: Center(
                       child: Text(
-                        user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                        widget.user.name.isNotEmpty
+                            ? widget.user.name[0].toUpperCase()
+                            : '?',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 24,
@@ -57,7 +234,7 @@ class SettingsScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          user.name,
+                          widget.user.name,
                           style: const TextStyle(
                             color: AppTheme.textPrimary,
                             fontSize: 18,
@@ -66,7 +243,9 @@ class SettingsScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          user.email ?? user.phoneNumber ?? 'No contact info',
+                          widget.user.email ??
+                              widget.user.phoneNumber ??
+                              'No contact info',
                           style: const TextStyle(
                             color: AppTheme.textMuted,
                             fontSize: 14,
@@ -75,60 +254,52 @@ class SettingsScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const Icon(
-                    Icons.chevron_right,
-                    color: AppTheme.textMuted,
-                  ),
+                  const Icon(Icons.chevron_right, color: AppTheme.textMuted),
                 ],
               ),
             ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.1),
-            
+
             const SizedBox(height: 24),
-            
+
             // Settings options
-            _buildSettingsGroup(
-              context,
-              'Account',
-              [
-                _SettingsItem(
-                  icon: Icons.person_outline,
-                  title: 'Edit Profile',
-                  onTap: () {},
-                ),
-                _SettingsItem(
-                  icon: Icons.notifications_outlined,
-                  title: 'Notifications',
-                  onTap: () {},
-                ),
-                _SettingsItem(
-                  icon: Icons.lock_outline,
-                  title: 'Privacy',
-                  onTap: () {},
-                ),
-              ],
-            ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
-            
+            _buildSettingsGroup(context, 'Account', [
+              _SettingsItem(
+                icon: Icons.person_outline,
+                title: 'Edit Profile',
+                onTap: () {},
+              ),
+              _SettingsItem(
+                icon: Icons.lock_outline,
+                title: 'Privacy',
+                onTap: () {},
+              ),
+            ]).animate().fadeIn(delay: 200.ms).slideY(begin: 0.1),
+
             const SizedBox(height: 24),
-            
-            _buildSettingsGroup(
-              context,
-              'App',
-              [
-                _SettingsItem(
-                  icon: Icons.help_outline,
-                  title: 'Help & Support',
-                  onTap: () {},
-                ),
-                _SettingsItem(
-                  icon: Icons.info_outline,
-                  title: 'About',
-                  onTap: () {},
-                ),
-              ],
-            ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.1),
-            
+
+            // Notifications toggle
+            _buildNotificationsToggle()
+                .animate()
+                .fadeIn(delay: 250.ms)
+                .slideY(begin: 0.1),
+
+            const SizedBox(height: 24),
+
+            _buildSettingsGroup(context, 'App', [
+              _SettingsItem(
+                icon: Icons.help_outline,
+                title: 'Help & Support',
+                onTap: () {},
+              ),
+              _SettingsItem(
+                icon: Icons.info_outline,
+                title: 'About',
+                onTap: () {},
+              ),
+            ]).animate().fadeIn(delay: 300.ms).slideY(begin: 0.1),
+
             const SizedBox(height: 32),
-            
+
             // Sign out button
             GlassCard(
               onTap: () {
@@ -139,11 +310,7 @@ class SettingsScreen extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.logout_rounded,
-                    color: AppTheme.error,
-                    size: 20,
-                  ),
+                  Icon(Icons.logout_rounded, color: AppTheme.error, size: 20),
                   const SizedBox(width: 12),
                   Text(
                     'Sign Out',
@@ -162,6 +329,88 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildNotificationsToggle() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Notifications',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(color: AppTheme.textMuted),
+        ),
+        const SizedBox(height: 12),
+        GlassCard(
+          padding: const EdgeInsets.all(16),
+          borderRadius: 16,
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryPurple.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.notifications_outlined,
+                  color: _notificationsEnabled
+                      ? AppTheme.success
+                      : AppTheme.textSecondary,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Push Notifications',
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _notificationsEnabled
+                          ? 'Enabled - You will receive updates'
+                          : 'Disabled - Enable to get updates',
+                      style: TextStyle(
+                        color: _notificationsEnabled
+                            ? AppTheme.success
+                            : AppTheme.textMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_isLoading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppTheme.primaryPurple,
+                    ),
+                  ),
+                )
+              else
+                Switch.adaptive(
+                  value: _notificationsEnabled,
+                  onChanged: _toggleNotifications,
+                  activeThumbColor: AppTheme.success,
+                  activeTrackColor: AppTheme.success.withValues(alpha: 0.3),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSettingsGroup(
     BuildContext context,
     String title,
@@ -172,9 +421,9 @@ class SettingsScreen extends StatelessWidget {
       children: [
         Text(
           title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppTheme.textMuted,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(color: AppTheme.textMuted),
         ),
         const SizedBox(height: 12),
         GlassCard(

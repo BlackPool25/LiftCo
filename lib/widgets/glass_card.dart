@@ -35,7 +35,7 @@ class GlassCard extends StatelessWidget {
         child: Container(
           decoration: BoxDecoration(
             gradient: gradient,
-            color: gradient == null 
+            color: gradient == null
                 ? (backgroundColor ?? AppTheme.glassBackground)
                 : null,
             borderRadius: BorderRadius.circular(borderRadius),
@@ -50,10 +50,7 @@ class GlassCard extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return GestureDetector(
-        onTap: onTap,
-        child: card,
-      );
+      return GestureDetector(onTap: onTap, child: card);
     }
     return card;
   }
@@ -93,14 +90,16 @@ class FeatureCard extends StatelessWidget {
         end: Alignment.bottomRight,
       ),
       borderRadius: BorderRadius.circular(borderRadius),
-      boxShadow: shadows ?? [
-        BoxShadow(
-          color: (gradientColors?.first ?? defaultGradientColors.first)
-              .withValues(alpha: 0.4),
-          blurRadius: 24,
-          offset: const Offset(0, 12),
-        ),
-      ],
+      boxShadow:
+          shadows ??
+          [
+            BoxShadow(
+              color: (gradientColors?.first ?? defaultGradientColors.first)
+                  .withValues(alpha: 0.4),
+              blurRadius: 24,
+              offset: const Offset(0, 12),
+            ),
+          ],
     );
 
     final card = Container(
@@ -110,10 +109,7 @@ class FeatureCard extends StatelessWidget {
     );
 
     if (onTap != null) {
-      return GestureDetector(
-        onTap: onTap,
-        child: card,
-      );
+      return GestureDetector(onTap: onTap, child: card);
     }
     return card;
   }
@@ -143,7 +139,7 @@ class BentoItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasGradient = gradientColors != null && gradientColors!.isNotEmpty;
-    
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -169,14 +165,18 @@ class BentoItem extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: hasGradient 
+                color: hasGradient
                     ? Colors.white.withValues(alpha: 0.2)
-                    : (iconColor ?? AppTheme.primaryPurple).withValues(alpha: 0.15),
+                    : (iconColor ?? AppTheme.primaryPurple).withValues(
+                        alpha: 0.15,
+                      ),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
                 icon,
-                color: hasGradient ? Colors.white : (iconColor ?? AppTheme.primaryPurple),
+                color: hasGradient
+                    ? Colors.white
+                    : (iconColor ?? AppTheme.primaryPurple),
                 size: isLarge ? 28 : 22,
               ),
             ),
@@ -194,7 +194,7 @@ class BentoItem extends StatelessWidget {
               Text(
                 subtitle!,
                 style: TextStyle(
-                  color: hasGradient 
+                  color: hasGradient
                       ? Colors.white.withValues(alpha: 0.7)
                       : AppTheme.textMuted,
                   fontSize: 12,

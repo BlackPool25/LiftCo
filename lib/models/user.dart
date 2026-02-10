@@ -41,11 +41,11 @@ class User extends Equatable {
     required this.updatedAt,
   });
 
-  bool get isProfileComplete => 
-    age != null && 
-    gender != null && 
-    experienceLevel != null &&
-    preferredTime != null;
+  bool get isProfileComplete =>
+      age != null &&
+      gender != null &&
+      experienceLevel != null &&
+      preferredTime != null;
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
@@ -133,10 +133,23 @@ class User extends Equatable {
 
   @override
   List<Object?> get props => [
-    id, name, email, phoneNumber, age, gender,
-    currentWorkoutSplit, timeWorkingOutMonths, homeGymId,
-    profilePhotoUrl, experienceLevel, primaryActivity,
-    preferredTime, bio, reputationScore, createdAt, updatedAt,
+    id,
+    name,
+    email,
+    phoneNumber,
+    age,
+    gender,
+    currentWorkoutSplit,
+    timeWorkingOutMonths,
+    homeGymId,
+    profilePhotoUrl,
+    experienceLevel,
+    primaryActivity,
+    preferredTime,
+    bio,
+    reputationScore,
+    createdAt,
+    updatedAt,
   ];
 }
 
@@ -144,20 +157,86 @@ class User extends Equatable {
 class WorkoutSplit {
   static const List<Map<String, dynamic>> values = [
     // Primary training splits (how you organize your week)
-    {'value': 'ppl', 'label': 'Push Pull Legs', 'icon': Icons.fitness_center, 'description': '3-6 day split targeting push, pull, and leg days'},
-    {'value': 'upper_lower', 'label': 'Upper/Lower', 'icon': Icons.swap_vert, 'description': '4 day split alternating upper and lower body'},
-    {'value': 'bro_split', 'label': 'Bro Split', 'icon': Icons.calendar_today, 'description': '5 day body part split (chest, back, shoulders, arms, legs)'},
-    {'value': 'full_body', 'label': 'Full Body', 'icon': Icons.accessibility, 'description': '2-3 day whole body workouts'},
-    {'value': 'arnold', 'label': 'Arnold Split', 'icon': Icons.emoji_events, 'description': 'Chest/Back, Shoulders/Arms, Legs (6 days)'},
-    {'value': 'phul', 'label': 'PHUL', 'icon': Icons.trending_up, 'description': 'Power Hypertrophy Upper Lower (4 days)'},
-    {'value': 'phat', 'label': 'PHAT', 'icon': Icons.bolt, 'description': 'Power Hypertrophy Adaptive Training (5 days)'},
+    {
+      'value': 'ppl',
+      'label': 'Push Pull Legs',
+      'icon': Icons.fitness_center,
+      'description': '3-6 day split targeting push, pull, and leg days',
+    },
+    {
+      'value': 'upper_lower',
+      'label': 'Upper/Lower',
+      'icon': Icons.swap_vert,
+      'description': '4 day split alternating upper and lower body',
+    },
+    {
+      'value': 'bro_split',
+      'label': 'Bro Split',
+      'icon': Icons.calendar_today,
+      'description':
+          '5 day body part split (chest, back, shoulders, arms, legs)',
+    },
+    {
+      'value': 'full_body',
+      'label': 'Full Body',
+      'icon': Icons.accessibility,
+      'description': '2-3 day whole body workouts',
+    },
+    {
+      'value': 'arnold',
+      'label': 'Arnold Split',
+      'icon': Icons.emoji_events,
+      'description': 'Chest/Back, Shoulders/Arms, Legs (6 days)',
+    },
+    {
+      'value': 'phul',
+      'label': 'PHUL',
+      'icon': Icons.trending_up,
+      'description': 'Power Hypertrophy Upper Lower (4 days)',
+    },
+    {
+      'value': 'phat',
+      'label': 'PHAT',
+      'icon': Icons.bolt,
+      'description': 'Power Hypertrophy Adaptive Training (5 days)',
+    },
     // Training focus types
-    {'value': 'strength', 'label': 'Strength/Powerlifting', 'icon': Icons.fitness_center, 'description': 'Focus on compound lifts and strength'},
-    {'value': 'cardio_focused', 'label': 'Cardio Focused', 'icon': Icons.directions_run, 'description': 'Primarily cardiovascular training'},
-    {'value': 'crossfit', 'label': 'CrossFit', 'icon': Icons.sports, 'description': 'High-intensity functional movements'},
-    {'value': 'yoga', 'label': 'Yoga/Mobility', 'icon': Icons.self_improvement, 'description': 'Flexibility and mobility focus'},
-    {'value': 'hybrid', 'label': 'Hybrid', 'icon': Icons.merge_type, 'description': 'Mixed approach combining multiple styles'},
-    {'value': 'other', 'label': 'Other', 'icon': Icons.more_horiz, 'description': 'Custom or unique routine'},
+    {
+      'value': 'strength',
+      'label': 'Strength/Powerlifting',
+      'icon': Icons.fitness_center,
+      'description': 'Focus on compound lifts and strength',
+    },
+    {
+      'value': 'cardio_focused',
+      'label': 'Cardio Focused',
+      'icon': Icons.directions_run,
+      'description': 'Primarily cardiovascular training',
+    },
+    {
+      'value': 'crossfit',
+      'label': 'CrossFit',
+      'icon': Icons.sports,
+      'description': 'High-intensity functional movements',
+    },
+    {
+      'value': 'yoga',
+      'label': 'Yoga/Mobility',
+      'icon': Icons.self_improvement,
+      'description': 'Flexibility and mobility focus',
+    },
+    {
+      'value': 'hybrid',
+      'label': 'Hybrid',
+      'icon': Icons.merge_type,
+      'description': 'Mixed approach combining multiple styles',
+    },
+    {
+      'value': 'other',
+      'label': 'Other',
+      'icon': Icons.more_horiz,
+      'description': 'Custom or unique routine',
+    },
   ];
 }
 
@@ -168,7 +247,7 @@ class ExperienceLevel {
       'label': 'Beginner',
       'description': 'Just getting started',
       'color': 0xFF22C55E,
-      'icon': Icons.spa,  // Changed from seed to spa
+      'icon': Icons.spa, // Changed from seed to spa
     },
     {
       'value': 'intermediate',
@@ -226,6 +305,10 @@ class Gender {
     {'value': 'male', 'label': 'Male', 'icon': Icons.male},
     {'value': 'female', 'label': 'Female', 'icon': Icons.female},
     {'value': 'non_binary', 'label': 'Non-Binary', 'icon': Icons.transgender},
-    {'value': 'prefer_not_to_say', 'label': 'Prefer not to say', 'icon': Icons.remove},
+    {
+      'value': 'prefer_not_to_say',
+      'label': 'Prefer not to say',
+      'icon': Icons.remove,
+    },
   ];
 }

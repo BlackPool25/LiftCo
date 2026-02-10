@@ -62,7 +62,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           _showError('Please enter your name');
           return false;
         }
-        if (_ageController.text.isEmpty || int.parse(_ageController.text) < 13) {
+        if (_ageController.text.isEmpty ||
+            int.parse(_ageController.text) < 13) {
           _showError('Please enter a valid age (13+)');
           return false;
         }
@@ -91,20 +92,22 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   void _completeProfile() {
-    context.read<AuthBloc>().add(CompleteProfileRequested(
-          name: _nameController.text.trim(),
-          age: int.parse(_ageController.text),
-          gender: _selectedGender!,
-          experienceLevel: _selectedExperience!,
-          preferredTime: _selectedPreferredTime!,
-          currentWorkoutSplit: _selectedWorkoutSplit,
-          timeWorkingOutMonths: _monthsController.text.isNotEmpty
-              ? int.parse(_monthsController.text)
-              : null,
-          bio: _bioController.text.trim().isNotEmpty
-              ? _bioController.text.trim()
-              : null,
-        ));
+    context.read<AuthBloc>().add(
+      CompleteProfileRequested(
+        name: _nameController.text.trim(),
+        age: int.parse(_ageController.text),
+        gender: _selectedGender!,
+        experienceLevel: _selectedExperience!,
+        preferredTime: _selectedPreferredTime!,
+        currentWorkoutSplit: _selectedWorkoutSplit,
+        timeWorkingOutMonths: _monthsController.text.isNotEmpty
+            ? int.parse(_monthsController.text)
+            : null,
+        bio: _bioController.text.trim().isNotEmpty
+            ? _bioController.text.trim()
+            : null,
+      ),
+    );
   }
 
   void _showError(String message) {
@@ -130,7 +133,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         builder: (context, state) {
           if (state is AuthLoading) {
             return Container(
-              decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
+              decoration: const BoxDecoration(
+                gradient: AppTheme.surfaceGradient,
+              ),
               child: const Center(
                 child: CircularProgressIndicator(color: AppTheme.primaryPurple),
               ),
@@ -143,7 +148,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               children: [
                 // Background orbs
                 _buildBackgroundOrbs(),
-                
+
                 // Main content
                 SafeArea(
                   child: Column(
@@ -227,7 +232,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               return Expanded(
                 child: Container(
                   height: 4,
-                  margin: EdgeInsets.only(right: index < _totalSteps - 1 ? 8 : 0),
+                  margin: EdgeInsets.only(
+                    right: index < _totalSteps - 1 ? 8 : 0,
+                  ),
                   decoration: BoxDecoration(
                     gradient: isActive ? AppTheme.primaryGradient : null,
                     color: isActive ? null : AppTheme.surfaceLight,
@@ -246,7 +253,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: AppTheme.surface,
                   borderRadius: BorderRadius.circular(8),
@@ -323,7 +333,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             decoration: InputDecoration(
               labelText: 'Full Name',
               hintText: 'Enter your name',
-              prefixIcon: const Icon(Icons.person_outline, color: AppTheme.textMuted),
+              prefixIcon: const Icon(
+                Icons.person_outline,
+                color: AppTheme.textMuted,
+              ),
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
@@ -349,7 +362,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             decoration: InputDecoration(
               labelText: 'Age',
               hintText: 'Your age',
-              prefixIcon: const Icon(Icons.cake_outlined, color: AppTheme.textMuted),
+              prefixIcon: const Icon(
+                Icons.cake_outlined,
+                color: AppTheme.textMuted,
+              ),
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
@@ -361,10 +377,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         const SizedBox(height: 24),
 
         // Gender Selection
-        Text(
-          'Gender',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text('Gender', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
         Wrap(
           spacing: 12,
@@ -375,7 +388,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               label: gender['label'] as String,
               icon: gender['icon'] as IconData,
               isSelected: isSelected,
-              onTap: () => setState(() => _selectedGender = gender['value'] as String),
+              onTap: () =>
+                  setState(() => _selectedGender = gender['value'] as String),
             );
           }).toList(),
         ),
@@ -436,7 +450,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             ],
             decoration: InputDecoration(
               hintText: 'Number of months',
-              prefixIcon: const Icon(Icons.timer_outlined, color: AppTheme.textMuted),
+              prefixIcon: const Icon(
+                Icons.timer_outlined,
+                color: AppTheme.textMuted,
+              ),
               suffixText: 'months',
               suffixStyle: const TextStyle(color: AppTheme.textMuted),
               border: InputBorder.none,
@@ -486,8 +503,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               icon: time['icon'] as IconData,
               gradientColors: (time['gradient'] as List<dynamic>).cast<int>(),
               isSelected: isSelected,
-              onTap: () =>
-                  setState(() => _selectedPreferredTime = time['value'] as String),
+              onTap: () => setState(
+                () => _selectedPreferredTime = time['value'] as String,
+              ),
             );
           },
         ),
@@ -525,8 +543,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             return FilterChip(
               label: Text(split['label'] as String),
               selected: isSelected,
-              onSelected: (_) =>
-                  setState(() => _selectedWorkoutSplit = split['value'] as String),
+              onSelected: (_) => setState(
+                () => _selectedWorkoutSplit = split['value'] as String,
+              ),
               selectedColor: AppTheme.primaryPurple,
               backgroundColor: AppTheme.surface,
               checkmarkColor: Colors.white,
@@ -537,7 +556,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
                 side: BorderSide(
-                  color: isSelected ? AppTheme.primaryPurple : AppTheme.surfaceBorder,
+                  color: isSelected
+                      ? AppTheme.primaryPurple
+                      : AppTheme.surfaceBorder,
                 ),
               ),
             );
@@ -547,10 +568,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         const SizedBox(height: 28),
 
         // Bio
-        Text(
-          'Bio',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text('Bio', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
         GlassCard(
           padding: EdgeInsets.zero,
@@ -583,10 +601,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           if (_currentStep > 0) ...[
             Expanded(
               flex: 1,
-              child: GlassButton(
-                text: 'Back',
-                onPressed: _previousStep,
-              ),
+              child: GlassButton(text: 'Back', onPressed: _previousStep),
             ),
             const SizedBox(width: 16),
           ],
@@ -706,10 +721,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             if (isSelected)
               Container(
                 padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                 child: const Icon(Icons.check, color: Colors.white, size: 16),
               ),
           ],

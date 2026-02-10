@@ -7,6 +7,7 @@ import '../config/theme.dart';
 import '../models/user.dart' as app_user;
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
+import 'create_session_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   final app_user.User user;
@@ -17,14 +18,12 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: AppTheme.surfaceGradient,
-        ),
+        decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
         child: Stack(
           children: [
             // Background gradient orbs
             _buildBackgroundOrbs(),
-            
+
             // Main content
             SafeArea(
               child: CustomScrollView(
@@ -52,9 +51,9 @@ class HomeScreen extends StatelessWidget {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: _buildQuickActions(context)
-                          .animate()
-                          .fadeIn(delay: 200.ms, duration: 500.ms),
+                      child: _buildQuickActions(
+                        context,
+                      ).animate().fadeIn(delay: 200.ms, duration: 500.ms),
                     ),
                   ),
 
@@ -62,9 +61,9 @@ class HomeScreen extends StatelessWidget {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: _buildStatsSection(context)
-                          .animate()
-                          .fadeIn(delay: 300.ms, duration: 500.ms),
+                      child: _buildStatsSection(
+                        context,
+                      ).animate().fadeIn(delay: 300.ms, duration: 500.ms),
                     ),
                   ),
 
@@ -72,9 +71,9 @@ class HomeScreen extends StatelessWidget {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: _buildSessionsSection(context)
-                          .animate()
-                          .fadeIn(delay: 400.ms, duration: 500.ms),
+                      child: _buildSessionsSection(
+                        context,
+                      ).animate().fadeIn(delay: 400.ms, duration: 500.ms),
                     ),
                   ),
 
@@ -99,17 +98,19 @@ class HomeScreen extends StatelessWidget {
         ),
         child: FloatingActionButton.extended(
           onPressed: () {
-            // TODO: Navigate to create session
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CreateSessionScreen(),
+              ),
+            );
           },
           backgroundColor: Colors.transparent,
           elevation: 0,
           icon: const Icon(Icons.add, color: Colors.white),
           label: const Text(
             'New Session',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
           ),
         ),
       ),
@@ -235,23 +236,22 @@ class HomeScreen extends StatelessWidget {
               Text(
                 'Hey, ${user.name.split(' ').first}! 👋',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.8),
-                    ),
+                  color: Colors.white.withValues(alpha: 0.8),
+                ),
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.star,
-                      color: AppTheme.warning,
-                      size: 16,
-                    ),
+                    Icon(Icons.star, color: AppTheme.warning, size: 16),
                     const SizedBox(width: 4),
                     Text(
                       '${user.reputationScore}',
@@ -270,9 +270,9 @@ class HomeScreen extends StatelessWidget {
           Text(
             'Ready to crush\nyour workout?',
             style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  color: Colors.white,
-                  height: 1.2,
-                ),
+              color: Colors.white,
+              height: 1.2,
+            ),
           ),
           const SizedBox(height: 24),
           Row(
@@ -281,7 +281,10 @@ class HomeScreen extends StatelessWidget {
                 text: 'Find Buddy',
                 icon: Icons.search,
                 onPressed: () {},
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 14,
+                ),
                 gradientColors: [
                   Colors.white,
                   Colors.white.withValues(alpha: 0.9),
@@ -298,10 +301,7 @@ class HomeScreen extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Quick Actions',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        Text('Quick Actions', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 16),
         Row(
           children: [
@@ -371,10 +371,7 @@ class HomeScreen extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Your Stats',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        Text('Your Stats', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 16),
         Row(
           children: [
@@ -393,7 +390,7 @@ class HomeScreen extends StatelessWidget {
                 label: 'Level',
                 value: user.experienceLevel != null
                     ? user.experienceLevel!.substring(0, 1).toUpperCase() +
-                        user.experienceLevel!.substring(1)
+                          user.experienceLevel!.substring(1)
                     : 'Beginner',
                 iconColor: AppTheme.success,
               ),
@@ -431,10 +428,7 @@ class HomeScreen extends StatelessWidget {
                   children: [
                     Text(
                       'Preferred Time',
-                      style: TextStyle(
-                        color: AppTheme.textMuted,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -450,10 +444,7 @@ class HomeScreen extends StatelessWidget {
               ),
               Text(
                 '${timeData['time']}',
-                style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
               ),
             ],
           ),
@@ -494,10 +485,7 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: const TextStyle(
-              color: AppTheme.textMuted,
-              fontSize: 13,
-            ),
+            style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
           ),
         ],
       ),
@@ -558,10 +546,7 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 8),
               const Text(
                 'Join or create a workout session\nto get started',
-                style: TextStyle(
-                  color: AppTheme.textMuted,
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: AppTheme.textMuted, fontSize: 14),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
@@ -569,7 +554,10 @@ class HomeScreen extends StatelessWidget {
                 text: 'Create Session',
                 icon: Icons.add,
                 onPressed: () {},
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 14,
+                ),
               ),
             ],
           ),
