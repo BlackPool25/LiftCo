@@ -742,6 +742,8 @@ This project is licensed under the MIT License.
 - ✅ Removed reputation score from top app bar
 - ✅ Added status tags (Joined, Open, Women Only)
 - ✅ Implemented pagination with "Load More"
+- ✅ Displayed gym names on session cards (Home/Schedule) and in Session Details
+- ✅ Added Home tab gym filter with server-side session refresh
 
 ### Architecture Improvements
 - ✅ Created generic CRUD service for Edge Functions

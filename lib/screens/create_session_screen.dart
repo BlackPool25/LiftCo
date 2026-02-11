@@ -922,7 +922,7 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
                                             _womenOnly = value;
                                           });
                                         },
-                                        activeColor: Colors.pink[400],
+                                        activeThumbColor: Colors.pink[400],
                                         activeTrackColor: Colors.pink[200]!
                                             .withValues(alpha: 0.5),
                                       ),

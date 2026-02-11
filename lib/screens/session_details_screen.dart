@@ -21,7 +21,6 @@ class SessionDetailsScreen extends StatefulWidget {
 class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   late SessionService _sessionService;
   WorkoutSession? _session;
-  bool _isLoading = false;
   bool _isJoining = false;
   String? _currentUserId;
   bool _isUserJoined = false;
@@ -55,7 +54,9 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           (updatedSession) {
             if (updatedSession != null && mounted) {
               setState(() {
-                _session = updatedSession;
+                _session = updatedSession.gym == null && _session?.gym != null
+                    ? updatedSession.copyWith(gym: _session!.gym)
+                    : updatedSession;
                 _checkIfUserJoined();
               });
             } else if (updatedSession == null && mounted) {
@@ -88,7 +89,9 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
               );
               if (updatedSession != null && mounted) {
                 setState(() {
-                  _session = updatedSession;
+                  _session = updatedSession.gym == null && _session?.gym != null
+                      ? updatedSession.copyWith(gym: _session!.gym)
+                      : updatedSession;
                   _checkIfUserJoined();
                 });
               }
@@ -117,28 +120,6 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       _isUserJoined = _session!.members!.any(
         (m) => m.userId == _currentUserId && m.status == 'joined',
       );
-    }
-  }
-
-  Future<void> _loadSessionDetails() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final session = await _sessionService.getSession(_session!.id);
-      if (session != null) {
-        setState(() {
-          _session = session;
-          _checkIfUserJoined();
-        });
-      }
-    } catch (e) {
-      // Ignore error, use initial session data
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
@@ -445,35 +426,29 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       body: Container(
         decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
         child: SafeArea(
-          child: _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    color: AppTheme.primaryPurple,
+          child: CustomScrollView(
+            slivers: [
+              // App bar
+              SliverToBoxAdapter(child: _buildAppBar()),
+
+              // Session info card
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                  child: _buildSessionInfoCard(),
+                ),
+              ),
+
+              // Members section
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    'Members (${_session?.currentCount ?? 0}/${_session?.maxCapacity ?? 0})',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                )
-              : CustomScrollView(
-                  slivers: [
-                    // App bar
-                    SliverToBoxAdapter(child: _buildAppBar()),
-
-                    // Session info card
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                        child: _buildSessionInfoCard(),
-                      ),
-                    ),
-
-                    // Members section
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Text(
-                          'Members (${_session?.currentCount ?? 0}/${_session?.maxCapacity ?? 0})',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                      ),
-                    ),
+                ),
+              ),
 
                     const SliverToBoxAdapter(child: SizedBox(height: 16)),
 

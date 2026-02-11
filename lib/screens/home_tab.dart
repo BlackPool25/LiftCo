@@ -5,7 +5,9 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/theme.dart';
 import '../models/user.dart' as app_user;
+import '../models/gym.dart';
 import '../models/workout_session.dart';
+import '../services/gym_service.dart';
 import '../services/user_service.dart';
 import '../services/session_service.dart';
 import '../widgets/glass_card.dart';
@@ -30,6 +32,7 @@ class HomeTab extends StatefulWidget {
 class _HomeTabState extends State<HomeTab> {
   late UserService _userService;
   late SessionService _sessionService;
+  late GymService _gymService;
 
   List<WorkoutSession> _allSessions = [];
   List<WorkoutSession> _filteredSessions = [];
@@ -40,6 +43,11 @@ class _HomeTabState extends State<HomeTab> {
   String? _filterIntensity;
   String? _filterTimeRange;
   int? _filterDuration;
+  int? _filterGymId;
+
+  // Gyms list for filters
+  List<Gym> _gyms = [];
+  bool _isLoadingGyms = false;
 
   // Women safety feature
   bool _femaleOnlyMode = false;
@@ -63,16 +71,15 @@ class _HomeTabState extends State<HomeTab> {
   // Flag to prevent subscription from adding duplicates during initial load
   bool _isInitialLoading = true;
 
-  // Cache for gym names (gym_id -> gym_name)
-  final Map<int, String> _gymNamesCache = {};
-
   @override
   void initState() {
     super.initState();
     _userService = UserService(Supabase.instance.client);
     _sessionService = SessionService(Supabase.instance.client);
+    _gymService = GymService(Supabase.instance.client);
     _currentUser = widget.user;
     _loadSessions();
+    _loadGyms();
     _subscribeToUserMemberships();
     _subscribeToRecentSessions();
   }
@@ -117,7 +124,10 @@ class _HomeTabState extends State<HomeTab> {
                       (s) => s.id == session.id,
                     );
                     if (index != -1) {
-                      _allSessions[index] = updatedSession;
+                      final existing = _allSessions[index];
+                      _allSessions[index] = updatedSession.gym == null
+                          ? updatedSession.copyWith(gym: existing.gym)
+                          : updatedSession;
                       _applyFilters();
                     }
                   });
@@ -335,6 +345,99 @@ class _HomeTabState extends State<HomeTab> {
     }
   }
 
+  Future<void> _loadGyms() async {
+    setState(() {
+      _isLoadingGyms = true;
+    });
+
+    try {
+      final gyms = await _gymService.getGyms();
+      if (mounted) {
+        setState(() {
+          _gyms = gyms;
+          _isLoadingGyms = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingGyms = false;
+        });
+      }
+    }
+  }
+
+  Future<List<WorkoutSession>> _fetchSessionsPage(int page) async {
+    var query = Supabase.instance.client
+        .from('workout_sessions')
+        .select('''
+          *,
+          host:host_user_id(id, name),
+          gym:gym_id(name)
+        ''')
+        .eq('status', 'upcoming')
+        .gte('start_time', DateTime.now().toIso8601String());
+
+    if (_filterGymId != null) {
+      query = query.eq('gym_id', _filterGymId!);
+    }
+
+    if (_filterIntensity != null) {
+      query = query.eq('intensity_level', _filterIntensity!);
+    }
+
+    if (_filterDuration != null) {
+      query = query.eq('duration_minutes', _filterDuration!);
+    }
+
+    if (_femaleOnlyMode) {
+      query = query.eq('women_only', true);
+    }
+
+    final response = await query
+        .order('start_time', ascending: true)
+        .range(
+      page * _sessionsPerPage,
+      (page + 1) * _sessionsPerPage - 1,
+    );
+
+    return (response as List)
+        .map((json) => WorkoutSession.fromJson(json))
+        .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
+        .toList();
+  }
+
+  Future<void> _reloadSessionsFromServer() async {
+    setState(() {
+      _isLoadingSessions = true;
+      _sessionsError = null;
+      _currentPage = 0;
+    });
+
+    try {
+      final sessions = await _fetchSessionsPage(0);
+      if (!mounted) return;
+
+      setState(() {
+        _allSessions = sessions;
+        _isLoadingSessions = false;
+        _isInitialLoading = false;
+        _hasMoreSessions = sessions.length >= _sessionsPerPage;
+      });
+
+      _applyFilters();
+      _subscribeToVisibleSessions();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _sessionsError = e.toString();
+          _isLoadingSessions = false;
+          _isInitialLoading = false;
+        });
+      }
+    }
+  }
+
   Future<void> _loadMoreSessions() async {
     if (_isLoadingMore || !_hasMoreSessions) return;
 
@@ -344,25 +447,7 @@ class _HomeTabState extends State<HomeTab> {
 
     try {
       final nextPage = _currentPage + 1;
-      final response = await Supabase.instance.client
-          .from('workout_sessions')
-          .select('''
-            *,
-            host:host_user_id(id, name),
-            gym:gym_id(name)
-          ''')
-          .eq('status', 'upcoming')
-          .gte('start_time', DateTime.now().toIso8601String())
-          .order('start_time', ascending: true)
-          .range(
-            nextPage * _sessionsPerPage,
-            (nextPage + 1) * _sessionsPerPage - 1,
-          );
-
-      final newSessions = (response as List)
-          .map((json) => WorkoutSession.fromJson(json))
-          .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
-          .toList();
+      final newSessions = await _fetchSessionsPage(nextPage);
 
       if (mounted) {
         setState(() {
@@ -387,48 +472,7 @@ class _HomeTabState extends State<HomeTab> {
 
   /// Initial load of sessions (one-time fetch)
   Future<void> _loadSessions() async {
-    setState(() {
-      _isLoadingSessions = true;
-      _sessionsError = null;
-    });
-
-    try {
-      // Fetch upcoming sessions from all gyms
-      final response = await Supabase.instance.client
-          .from('workout_sessions')
-          .select('''
-            *,
-            host:host_user_id(id, name),
-            gym:gym_id(name)
-          ''')
-          .eq('status', 'upcoming')
-          .gte('start_time', DateTime.now().toIso8601String())
-          .order('start_time', ascending: true)
-          .limit(_sessionsPerPage);
-
-      final sessions = (response as List)
-          .map((json) => WorkoutSession.fromJson(json))
-          .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
-          .toList();
-
-      setState(() {
-        _allSessions = sessions;
-        _filteredSessions = sessions;
-        _isLoadingSessions = false;
-        _isInitialLoading = false; // Mark initial load as complete
-        _hasMoreSessions = sessions.length >= _sessionsPerPage;
-      });
-
-      // Subscribe only to visible sessions after loading
-      _subscribeToVisibleSessions();
-    } catch (e) {
-      setState(() {
-        _sessionsError = e.toString();
-        _isLoadingSessions = false;
-        _isInitialLoading =
-            false; // Mark initial load as complete even on error
-      });
-    }
+    await _reloadSessionsFromServer();
   }
 
   void _applyFilters() {
@@ -443,6 +487,11 @@ class _HomeTabState extends State<HomeTab> {
         if (_filterIntensity != null &&
             session.intensityLevel?.toLowerCase() !=
                 _filterIntensity!.toLowerCase()) {
+          return false;
+        }
+
+        // Filter by gym
+        if (_filterGymId != null && session.gymId != _filterGymId) {
           return false;
         }
 
@@ -478,6 +527,7 @@ class _HomeTabState extends State<HomeTab> {
       _filterIntensity = null;
       _filterTimeRange = null;
       _filterDuration = null;
+      _filterGymId = null;
       _filteredSessions = _allSessions;
     });
   }
@@ -511,17 +561,70 @@ class _HomeTabState extends State<HomeTab> {
                     const Spacer(),
                     if (_filterIntensity != null ||
                         _filterTimeRange != null ||
-                        _filterDuration != null)
+                        _filterDuration != null ||
+                        _filterGymId != null)
                       TextButton(
-                        onPressed: () {
+                        onPressed: () async {
                           setModalState(() {
                             _clearFilters();
                           });
-                          Navigator.pop(context);
+                          await _reloadSessionsFromServer();
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                          }
                         },
                         child: const Text('Clear All'),
                       ),
                   ],
+                ),
+                const SizedBox(height: 24),
+
+                // Gym filter
+                Text(
+                  'Gym',
+                  style: TextStyle(
+                    color: AppTheme.textMuted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int?>(
+                  key: ValueKey(_filterGymId ?? 'all'),
+                  initialValue: _filterGymId,
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('All gyms'),
+                    ),
+                    ..._gyms.map(
+                      (gym) => DropdownMenuItem<int?>(
+                        value: gym.id,
+                        child: Text(gym.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: _isLoadingGyms
+                      ? null
+                      : (value) {
+                          setModalState(() {
+                            _filterGymId = value;
+                          });
+                        },
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: AppTheme.surfaceLight,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  dropdownColor: AppTheme.surface,
+                  iconEnabledColor: AppTheme.textSecondary,
                 ),
                 const SizedBox(height: 24),
 
@@ -649,9 +752,11 @@ class _HomeTabState extends State<HomeTab> {
                   width: double.infinity,
                   child: GradientButton(
                     text: 'Apply Filters',
-                    onPressed: () {
-                      _applyFilters();
-                      Navigator.pop(context);
+                    onPressed: () async {
+                      await _reloadSessionsFromServer();
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                      }
                     },
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
@@ -710,6 +815,7 @@ class _HomeTabState extends State<HomeTab> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: GestureDetector(
                       onTap: () async {
+                        final messenger = ScaffoldMessenger.of(context);
                         final newTime = time['value'] as String;
                         if (newTime == tempSelectedTime) return;
 
@@ -720,30 +826,28 @@ class _HomeTabState extends State<HomeTab> {
 
                         try {
                           await _userService.updatePreferredTime(newTime);
-                          if (mounted) {
-                            // Refresh user data to update main UI
-                            await _refreshUser();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Preferred time updated!'),
-                                backgroundColor: AppTheme.success,
-                              ),
-                            );
-                          }
+                          if (!mounted) return;
+                          // Refresh user data to update main UI
+                          await _refreshUser();
+                          messenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('Preferred time updated!'),
+                              backgroundColor: AppTheme.success,
+                            ),
+                          );
                         } catch (e) {
                           // Revert on error
                           setModalState(() {
                             tempSelectedTime =
                                 _currentUser.preferredTime ?? 'morning';
                           });
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Failed to update: $e'),
-                                backgroundColor: AppTheme.error,
-                              ),
-                            );
-                          }
+                          if (!mounted) return;
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to update: $e'),
+                              backgroundColor: AppTheme.error,
+                            ),
+                          );
                         }
                       },
                       child: AnimatedContainer(
@@ -1009,10 +1113,11 @@ class _HomeTabState extends State<HomeTab> {
         if (_currentUser.gender?.toLowerCase() == 'female') ...[
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: () {
+            onTap: () async {
               setState(() {
                 _femaleOnlyMode = !_femaleOnlyMode;
               });
+              await _reloadSessionsFromServer();
               _applyFilters();
             },
             child: Container(
@@ -1295,7 +1400,8 @@ class _HomeTabState extends State<HomeTab> {
                   color:
                       (_filterIntensity != null ||
                           _filterTimeRange != null ||
-                          _filterDuration != null)
+                        _filterDuration != null ||
+                        _filterGymId != null)
                       ? AppTheme.primaryPurple.withValues(alpha: 0.2)
                       : AppTheme.surfaceLight,
                   borderRadius: BorderRadius.circular(20),
@@ -1303,7 +1409,8 @@ class _HomeTabState extends State<HomeTab> {
                     color:
                         (_filterIntensity != null ||
                             _filterTimeRange != null ||
-                            _filterDuration != null)
+                        _filterDuration != null ||
+                        _filterGymId != null)
                         ? AppTheme.primaryPurple
                         : AppTheme.surfaceBorder,
                   ),
@@ -1316,7 +1423,8 @@ class _HomeTabState extends State<HomeTab> {
                       color:
                           (_filterIntensity != null ||
                               _filterTimeRange != null ||
-                              _filterDuration != null)
+                            _filterDuration != null ||
+                            _filterGymId != null)
                           ? AppTheme.primaryPurple
                           : AppTheme.textSecondary,
                       size: 16,
@@ -1328,7 +1436,8 @@ class _HomeTabState extends State<HomeTab> {
                         color:
                             (_filterIntensity != null ||
                                 _filterTimeRange != null ||
-                                _filterDuration != null)
+                                _filterDuration != null ||
+                                _filterGymId != null)
                             ? AppTheme.primaryPurple
                             : AppTheme.textSecondary,
                         fontSize: 12,
@@ -1400,9 +1509,13 @@ class _HomeTabState extends State<HomeTab> {
                 if (_allSessions.isNotEmpty &&
                     (_filterIntensity != null ||
                         _filterTimeRange != null ||
-                        _filterDuration != null))
+                        _filterDuration != null ||
+                        _filterGymId != null))
                   TextButton(
-                    onPressed: _clearFilters,
+                    onPressed: () async {
+                      _clearFilters();
+                      await _reloadSessionsFromServer();
+                    },
                     child: const Text('Clear Filters'),
                   ),
               ],

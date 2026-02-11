@@ -67,10 +67,56 @@ class WorkoutSession extends Equatable {
       gym: json['gym'] as Map<String, dynamic>?,
       members: json['members'] != null
           ? (json['members'] as List)
-                .map((m) => SessionMember.fromJson(m))
+                .whereType<Map<String, dynamic>>()
+                .map(SessionMember.fromJsonSafe)
+                .whereType<SessionMember>()
                 .toList()
           : null,
       isUserJoined: json['is_user_joined'] as bool?,
+    );
+  }
+
+  WorkoutSession copyWith({
+    String? id,
+    int? gymId,
+    String? hostUserId,
+    String? title,
+    String? sessionType,
+    String? description,
+    DateTime? startTime,
+    int? durationMinutes,
+    int? maxCapacity,
+    int? currentCount,
+    String? status,
+    String? intensityLevel,
+    bool? womenOnly,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    Map<String, dynamic>? host,
+    Map<String, dynamic>? gym,
+    List<SessionMember>? members,
+    bool? isUserJoined,
+  }) {
+    return WorkoutSession(
+      id: id ?? this.id,
+      gymId: gymId ?? this.gymId,
+      hostUserId: hostUserId ?? this.hostUserId,
+      title: title ?? this.title,
+      sessionType: sessionType ?? this.sessionType,
+      description: description ?? this.description,
+      startTime: startTime ?? this.startTime,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      maxCapacity: maxCapacity ?? this.maxCapacity,
+      currentCount: currentCount ?? this.currentCount,
+      status: status ?? this.status,
+      intensityLevel: intensityLevel ?? this.intensityLevel,
+      womenOnly: womenOnly ?? this.womenOnly,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      host: host ?? this.host,
+      gym: gym ?? this.gym,
+      members: members ?? this.members,
+      isUserJoined: isUserJoined ?? this.isUserJoined,
     );
   }
 
@@ -198,6 +244,31 @@ class SessionMember extends Equatable {
       userId: json['user_id'] as String,
       status: json['status'] as String,
       joinedAt: DateTime.parse(json['joined_at'] as String),
+      user: json['user'] as Map<String, dynamic>?,
+    );
+  }
+
+  static SessionMember? fromJsonSafe(Map<String, dynamic> json) {
+    final id = json['id'] as String?;
+    final sessionId = json['session_id'] as String?;
+    final userId = json['user_id'] as String?;
+    final status = json['status'] as String?;
+    final joinedAtRaw = json['joined_at'] as String?;
+
+    if (id == null ||
+        sessionId == null ||
+        userId == null ||
+        status == null ||
+        joinedAtRaw == null) {
+      return null;
+    }
+
+    return SessionMember(
+      id: id,
+      sessionId: sessionId,
+      userId: userId,
+      status: status,
+      joinedAt: DateTime.parse(joinedAtRaw),
       user: json['user'] as Map<String, dynamic>?,
     );
   }

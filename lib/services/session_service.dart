@@ -65,7 +65,8 @@ class SessionService {
           .from('workout_sessions')
           .select('''
             *,
-            host:host_user_id(id, name)
+            host:host_user_id(id, name),
+            gym:gym_id(name)
           ''')
           .eq('id', response['id'] as String)
           .single();
@@ -222,6 +223,7 @@ class SessionService {
           .select('''
             *,
             host:host_user_id(id, name),
+            gym:gym_id(name),
             members:session_members(id, user_id, status, joined_at, user:user_id(id, name))
           ''')
           .eq('id', sessionId)
@@ -265,7 +267,8 @@ class SessionService {
           .from('workout_sessions')
           .select('''
             *,
-            host:host_user_id(id, name)
+            host:host_user_id(id, name),
+            gym:gym_id(name)
           ''')
           .inFilter('id', sessionIds)
           .order('start_time', ascending: true);
@@ -377,13 +380,26 @@ class SessionService {
 
   /// Subscribe to a specific session's changes
   Stream<WorkoutSession?> subscribeToSession(String sessionId) {
-    return _supabase.from('workout_sessions').stream(primaryKey: ['id']).map((
-      data,
-    ) {
-      final session = data.where((s) => s['id'] == sessionId).firstOrNull;
-      if (session == null) return null;
-      return WorkoutSession.fromJson(session);
-    });
+    return _supabase
+        .from('workout_sessions')
+        .stream(primaryKey: ['id'])
+        .asyncMap((data) async {
+          Map<String, dynamic>? session;
+          for (final row in data) {
+            if (row['id'] == sessionId) {
+              session = row;
+              break;
+            }
+          }
+
+          if (session == null) return null;
+
+          try {
+            return await getSession(sessionId);
+          } catch (e) {
+            return WorkoutSession.fromJson(session);
+          }
+        });
   }
 
   /// Subscribe to session members changes
@@ -424,7 +440,8 @@ class SessionService {
               .from('workout_sessions')
               .select('''
                 *,
-                host:host_user_id(id, name)
+                host:host_user_id(id, name),
+                gym:gym_id(name)
               ''')
               .inFilter('id', sessionIds)
               .order('start_time', ascending: true);
