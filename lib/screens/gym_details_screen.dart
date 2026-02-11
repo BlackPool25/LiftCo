@@ -55,13 +55,6 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
     }
   }
 
-  void _toggleFemaleOnlyMode() {
-    setState(() {
-      _femaleOnlyMode = !_femaleOnlyMode;
-      _applyFilter();
-    });
-  }
-
   void _applyFilter() {
     setState(() {
       if (_femaleOnlyMode) {
@@ -152,57 +145,7 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                       const Spacer(),
                       // Female-only mode toggle
                       if (_currentUserGender?.toLowerCase() == 'female') ...[
-                        GestureDetector(
-                          onTap: _toggleFemaleOnlyMode,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: _femaleOnlyMode
-                                  ? LinearGradient(
-                                      colors: [
-                                        Colors.pink[400]!,
-                                        Colors.purple[500]!,
-                                      ],
-                                    )
-                                  : null,
-                              color: _femaleOnlyMode
-                                  ? null
-                                  : AppTheme.surfaceLight,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: _femaleOnlyMode
-                                    ? Colors.transparent
-                                    : AppTheme.surfaceBorder,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  _femaleOnlyMode ? Icons.female : Icons.groups,
-                                  color: _femaleOnlyMode
-                                      ? Colors.white
-                                      : AppTheme.textSecondary,
-                                  size: 14,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _femaleOnlyMode ? 'Women' : 'All',
-                                  style: TextStyle(
-                                    color: _femaleOnlyMode
-                                        ? Colors.white
-                                        : AppTheme.textSecondary,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                        SizedBox(width: 172, child: _buildWomenOnlyToggle()),
                         const SizedBox(width: 8),
                       ],
                       if (_filteredSessions.isNotEmpty)
@@ -656,6 +599,112 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
         ],
       ),
     ).animate().fadeIn(delay: (200 + index * 50).ms).slideY(begin: 0.1);
+  }
+
+  Widget _buildWomenOnlyToggle() {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.all(3),
+      clipBehavior: Clip.hardEdge,
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.surfaceBorder),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final toggleWidth = constraints.maxWidth;
+          final knobWidth = toggleWidth / 2;
+
+          return Stack(
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                left: _femaleOnlyMode ? knobWidth : 0,
+                top: 0,
+                bottom: 0,
+                width: knobWidth,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: _femaleOnlyMode
+                        ? LinearGradient(
+                            colors: [Colors.pink[400]!, Colors.purple[500]!],
+                          )
+                        : AppTheme.primaryGradient,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primaryOrange.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (!_femaleOnlyMode) return;
+                        setState(() {
+                          _femaleOnlyMode = false;
+                          _applyFilter();
+                        });
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
+                          style: TextStyle(
+                            color: _femaleOnlyMode
+                                ? AppTheme.textSecondary
+                                : Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                          child: const Text('All'),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        if (_femaleOnlyMode) return;
+                        setState(() {
+                          _femaleOnlyMode = true;
+                          _applyFilter();
+                        });
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
+                          style: TextStyle(
+                            color: _femaleOnlyMode
+                                ? Colors.white
+                                : AppTheme.textSecondary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text('Women Only'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Widget _buildSessionDetail(IconData icon, String text) {

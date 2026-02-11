@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/theme.dart';
 import '../models/user.dart' as app_user;
@@ -991,7 +992,7 @@ class _HomeTabState extends State<HomeTab> {
                 const SizedBox(height: 8),
 
                 Text(
-                  'Ready to crush\nyour workout?',
+                  'Ready to crush\nworkouts together?',
                   style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                     color: AppTheme.textPrimary,
                     height: 1.2,
@@ -1070,14 +1071,37 @@ class _HomeTabState extends State<HomeTab> {
   Widget _buildAppBar(BuildContext context) {
     return Row(
       children: [
-        // Menu icon
+        // App logo + name
         GlassCard(
-          padding: const EdgeInsets.all(12),
-          borderRadius: 14,
-          child: const Icon(
-            Icons.menu_rounded,
-            color: AppTheme.textPrimary,
-            size: 22,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          borderRadius: 16,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Image.asset(
+                  'assets/images/liftco_logo.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'LiftCo',
+                style: GoogleFonts.plusJakartaSans(
+                  color: AppTheme.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
           ),
         ),
         const Spacer(),
@@ -1112,55 +1136,7 @@ class _HomeTabState extends State<HomeTab> {
         // Female-only mode toggle (for female users only)
         if (_currentUser.gender?.toLowerCase() == 'female') ...[
           const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () async {
-              setState(() {
-                _femaleOnlyMode = !_femaleOnlyMode;
-              });
-              await _reloadSessionsFromServer();
-              _applyFilters();
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                gradient: _femaleOnlyMode
-                    ? LinearGradient(
-                        colors: [Colors.pink[400]!, Colors.purple[500]!],
-                      )
-                    : null,
-                color: _femaleOnlyMode ? null : AppTheme.surfaceLight,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: _femaleOnlyMode
-                      ? Colors.transparent
-                      : AppTheme.surfaceBorder,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    _femaleOnlyMode ? Icons.female : Icons.groups,
-                    color: _femaleOnlyMode
-                        ? Colors.white
-                        : AppTheme.textSecondary,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _femaleOnlyMode ? 'Women' : 'All',
-                    style: TextStyle(
-                      color: _femaleOnlyMode
-                          ? Colors.white
-                          : AppTheme.textSecondary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          SizedBox(width: 172, child: _buildWomenOnlyToggle()),
         ],
       ],
     );
@@ -1266,6 +1242,114 @@ class _HomeTabState extends State<HomeTab> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildWomenOnlyToggle() {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.all(3),
+      clipBehavior: Clip.hardEdge,
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.surfaceBorder),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final toggleWidth = constraints.maxWidth;
+          final knobWidth = toggleWidth / 2;
+
+          return Stack(
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                left: _femaleOnlyMode ? knobWidth : 0,
+                top: 0,
+                bottom: 0,
+                width: knobWidth,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: _femaleOnlyMode
+                        ? LinearGradient(
+                            colors: [Colors.pink[400]!, Colors.purple[500]!],
+                          )
+                        : AppTheme.primaryGradient,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primaryOrange.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () async {
+                        if (!_femaleOnlyMode) return;
+                        setState(() {
+                          _femaleOnlyMode = false;
+                        });
+                        await _reloadSessionsFromServer();
+                        _applyFilters();
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
+                          style: TextStyle(
+                            color: _femaleOnlyMode
+                                ? AppTheme.textSecondary
+                                : Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                          child: const Text('All'),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () async {
+                        if (_femaleOnlyMode) return;
+                        setState(() {
+                          _femaleOnlyMode = true;
+                        });
+                        await _reloadSessionsFromServer();
+                        _applyFilters();
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
+                          style: TextStyle(
+                            color: _femaleOnlyMode
+                                ? Colors.white
+                                : AppTheme.textSecondary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                          child: const FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text('Women Only'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 

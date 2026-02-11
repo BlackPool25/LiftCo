@@ -573,6 +573,35 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
             ),
           ],
 
+          if (_session != null) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _buildTagChip(
+                  _session!.isWomenOnly ? 'Women Only' : 'All Members',
+                  _session!.isWomenOnly
+                      ? LinearGradient(
+                          colors: [Colors.pink[400]!, Colors.purple[500]!],
+                        )
+                      : AppTheme.primaryGradient,
+                ),
+                if (_isUserJoined)
+                  _buildTagChip('Joined', null, color: AppTheme.success)
+                else if (_session!.isFull)
+                  _buildTagChip('Full', null, color: AppTheme.error)
+                else if (_session!.isUpcoming)
+                  _buildTagChip('Open', null, color: AppTheme.accentCyan),
+                _buildTagChip(
+                  _session!.status.replaceAll('_', ' '),
+                  null,
+                  color: _getStatusColor(),
+                ),
+              ],
+            ),
+          ],
+
           const SizedBox(height: 20),
           const Divider(color: AppTheme.surfaceBorder, height: 1),
           const SizedBox(height: 20),
@@ -706,6 +735,33 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTagChip(
+    String label,
+    LinearGradient? gradient, {
+    Color? color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        gradient: gradient,
+        color: gradient == null
+            ? (color ?? AppTheme.surfaceLight).withValues(alpha: 0.2)
+            : null,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: gradient == null
+              ? (color ?? AppTheme.textSecondary)
+              : Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 

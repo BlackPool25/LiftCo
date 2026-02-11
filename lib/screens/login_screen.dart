@@ -290,10 +290,12 @@ class _LoginScreenState extends State<LoginScreen>
       children: [
         // Logo
         Container(
-          padding: const EdgeInsets.all(16),
+          width: 80,
+          height: 80,
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             gradient: AppTheme.primaryGradient,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
                 color: AppTheme.primaryPurple.withValues(alpha: 0.4),
@@ -302,10 +304,16 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ],
           ),
-          child: const Icon(
-            Icons.fitness_center_rounded,
-            color: Colors.white,
-            size: 32,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            padding: const EdgeInsets.all(6),
+            child: Image.asset(
+              'assets/images/liftco_logo.png',
+              fit: BoxFit.contain,
+            ),
           ),
         ),
         const SizedBox(height: 32),
@@ -330,7 +338,7 @@ class _LoginScreenState extends State<LoginScreen>
         ),
         const SizedBox(height: 8),
         Text(
-          'Find your perfect gym buddy and never skip a workout again.',
+          'Find buddies through group sessions and never skip a workout again.',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
       ],

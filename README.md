@@ -744,6 +744,8 @@ This project is licensed under the MIT License.
 - ✅ Implemented pagination with "Load More"
 - ✅ Displayed gym names on session cards (Home/Schedule) and in Session Details
 - ✅ Added Home tab gym filter with server-side session refresh
+- ✅ Added LiftCo logo + app name to Home and Login screens
+- ✅ Updated female-only toggles to sliding switches (Home/Gym Details)
 
 ### Architecture Improvements
 - ✅ Created generic CRUD service for Edge Functions
