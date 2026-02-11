@@ -23,14 +23,53 @@ class GymDetailsScreen extends StatefulWidget {
 class _GymDetailsScreenState extends State<GymDetailsScreen> {
   late GymService _gymService;
   List<WorkoutSession> _sessions = [];
+  List<WorkoutSession> _filteredSessions = [];
   bool _isLoading = true;
   String? _error;
+  bool _femaleOnlyMode = false;
+  String? _currentUserGender;
 
   @override
   void initState() {
     super.initState();
     _gymService = GymService(Supabase.instance.client);
+    _loadCurrentUserGender();
     _loadSessions();
+  }
+
+  Future<void> _loadCurrentUserGender() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        final response = await Supabase.instance.client
+            .from('users')
+            .select('gender')
+            .eq('id', user.id)
+            .single();
+        setState(() {
+          _currentUserGender = response['gender'] as String?;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading user gender: $e');
+    }
+  }
+
+  void _toggleFemaleOnlyMode() {
+    setState(() {
+      _femaleOnlyMode = !_femaleOnlyMode;
+      _applyFilter();
+    });
+  }
+
+  void _applyFilter() {
+    setState(() {
+      if (_femaleOnlyMode) {
+        _filteredSessions = _sessions.where((s) => s.isWomenOnly).toList();
+      } else {
+        _filteredSessions = _sessions;
+      }
+    });
   }
 
   Future<void> _loadSessions() async {
@@ -43,6 +82,7 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
       final sessions = await _gymService.getGymSessions(widget.gym.id);
       setState(() {
         _sessions = sessions;
+        _filteredSessions = sessions;
         _isLoading = false;
       });
     } catch (e) {
@@ -110,9 +150,64 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const Spacer(),
-                      if (_sessions.isNotEmpty)
+                      // Female-only mode toggle
+                      if (_currentUserGender?.toLowerCase() == 'female') ...[
+                        GestureDetector(
+                          onTap: _toggleFemaleOnlyMode,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: _femaleOnlyMode
+                                  ? LinearGradient(
+                                      colors: [
+                                        Colors.pink[400]!,
+                                        Colors.purple[500]!,
+                                      ],
+                                    )
+                                  : null,
+                              color: _femaleOnlyMode
+                                  ? null
+                                  : AppTheme.surfaceLight,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: _femaleOnlyMode
+                                    ? Colors.transparent
+                                    : AppTheme.surfaceBorder,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _femaleOnlyMode ? Icons.female : Icons.groups,
+                                  color: _femaleOnlyMode
+                                      ? Colors.white
+                                      : AppTheme.textSecondary,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _femaleOnlyMode ? 'Women' : 'All',
+                                  style: TextStyle(
+                                    color: _femaleOnlyMode
+                                        ? Colors.white
+                                        : AppTheme.textSecondary,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      if (_filteredSessions.isNotEmpty)
                         Text(
-                          '${_sessions.length} sessions',
+                          '${_filteredSessions.length} sessions',
                           style: const TextStyle(
                             color: AppTheme.textMuted,
                             fontSize: 13,
@@ -139,14 +234,17 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                     )
                   : _error != null
                   ? SliverToBoxAdapter(child: _buildErrorState())
-                  : _sessions.isEmpty
+                  : _filteredSessions.isEmpty
                   ? SliverToBoxAdapter(child: _buildEmptyState())
                   : SliverPadding(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate((context, index) {
-                          return _buildSessionCard(_sessions[index], index);
-                        }, childCount: _sessions.length),
+                          return _buildSessionCard(
+                            _filteredSessions[index],
+                            index,
+                          );
+                        }, childCount: _filteredSessions.length),
                       ),
                     ),
 
@@ -437,13 +535,54 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      session.sessionType,
-                      style: const TextStyle(
-                        color: AppTheme.accentCyan,
-                        fontSize: 13,
-                      ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Text(
+                          session.sessionType,
+                          style: const TextStyle(
+                            color: AppTheme.accentCyan,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (session.isWomenOnly) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.pink[400]!,
+                                  Colors.purple[500]!,
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.female,
+                                  color: Colors.white,
+                                  size: 10,
+                                ),
+                                SizedBox(width: 2),
+                                Text(
+                                  'Women Only',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),

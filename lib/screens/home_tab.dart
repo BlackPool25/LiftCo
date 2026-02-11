@@ -5,12 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/theme.dart';
 import '../models/user.dart' as app_user;
 import '../models/workout_session.dart';
-import '../services/gym_service.dart';
-import '../services/session_service.dart';
 import '../services/user_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
-import 'gym_details_screen.dart';
 import 'session_details_screen.dart';
 
 /// Home tab - main dashboard with stats and sessions
@@ -29,8 +26,6 @@ class HomeTab extends StatefulWidget {
 }
 
 class _HomeTabState extends State<HomeTab> {
-  late SessionService _sessionService;
-  late GymService _gymService;
   late UserService _userService;
 
   List<WorkoutSession> _allSessions = [];
@@ -46,23 +41,50 @@ class _HomeTabState extends State<HomeTab> {
   // Women safety feature
   bool _femaleOnlyMode = false;
 
+  // User state - to allow updates
+  late app_user.User _currentUser;
+
+  // Pagination
+  static const int _sessionsPerPage = 10;
+  int _currentPage = 0;
+  bool _hasMoreSessions = true;
+  bool _isLoadingMore = false;
+  Set<String> _userJoinedSessionIds = {};
+
   @override
   void initState() {
     super.initState();
-    _sessionService = SessionService(Supabase.instance.client);
-    _gymService = GymService(Supabase.instance.client);
     _userService = UserService(Supabase.instance.client);
+    _currentUser = widget.user;
     _loadSessions();
+  }
+
+  Future<void> _refreshUser() async {
+    try {
+      final profile = await _userService.getCurrentUserProfile();
+      if (profile != null && mounted) {
+        setState(() {
+          _currentUser = app_user.User.fromJson(profile);
+        });
+      }
+    } catch (e) {
+      // Silently fail - user data will be refreshed on next screen visit
+    }
   }
 
   Future<void> _loadSessions() async {
     setState(() {
       _isLoadingSessions = true;
       _sessionsError = null;
+      _currentPage = 0;
+      _hasMoreSessions = true;
     });
 
     try {
-      // Fetch upcoming sessions from all gyms
+      // Fetch user's joined sessions to determine status tags
+      await _loadUserJoinedSessions();
+
+      // Fetch upcoming sessions from all gyms with pagination
       final response = await Supabase.instance.client
           .from('workout_sessions')
           .select('''
@@ -72,22 +94,88 @@ class _HomeTabState extends State<HomeTab> {
           ''')
           .eq('status', 'upcoming')
           .gte('start_time', DateTime.now().toIso8601String())
-          .order('start_time', ascending: true);
+          .order('start_time', ascending: true)
+          .limit(_sessionsPerPage);
 
       final sessions = (response as List)
           .map((json) => WorkoutSession.fromJson(json))
-          .where((s) => !s.isFull)
+          .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
           .toList();
 
       setState(() {
         _allSessions = sessions;
         _filteredSessions = sessions;
         _isLoadingSessions = false;
+        _hasMoreSessions = sessions.length >= _sessionsPerPage;
       });
     } catch (e) {
       setState(() {
         _sessionsError = e.toString();
         _isLoadingSessions = false;
+      });
+    }
+  }
+
+  Future<void> _loadUserJoinedSessions() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      final memberships = await Supabase.instance.client
+          .from('session_members')
+          .select('session_id')
+          .eq('user_id', user.id)
+          .eq('status', 'joined');
+
+      setState(() {
+        _userJoinedSessionIds = memberships
+            .map((m) => m['session_id'] as String)
+            .toSet();
+      });
+    } catch (e) {
+      debugPrint('Error loading user joined sessions: $e');
+    }
+  }
+
+  Future<void> _loadMoreSessions() async {
+    if (_isLoadingMore || !_hasMoreSessions) return;
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final nextPage = _currentPage + 1;
+      final response = await Supabase.instance.client
+          .from('workout_sessions')
+          .select('''
+            *,
+            host:host_user_id(id, name),
+            gym:gym_id(name)
+          ''')
+          .eq('status', 'upcoming')
+          .gte('start_time', DateTime.now().toIso8601String())
+          .order('start_time', ascending: true)
+          .range(
+            nextPage * _sessionsPerPage,
+            (nextPage + 1) * _sessionsPerPage - 1,
+          );
+
+      final newSessions = (response as List)
+          .map((json) => WorkoutSession.fromJson(json))
+          .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
+          .toList();
+
+      setState(() {
+        _allSessions.addAll(newSessions);
+        _applyFilters();
+        _currentPage = nextPage;
+        _hasMoreSessions = newSessions.length >= _sessionsPerPage;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingMore = false;
       });
     }
   }
@@ -360,7 +448,7 @@ class _HomeTabState extends State<HomeTab> {
             ),
             const SizedBox(height: 24),
             ...app_user.PreferredTime.values.map((time) {
-              final isSelected = widget.user.preferredTime == time['value'];
+              final isSelected = _currentUser.preferredTime == time['value'];
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: GestureDetector(
@@ -371,8 +459,8 @@ class _HomeTabState extends State<HomeTab> {
                       );
                       if (mounted) {
                         Navigator.pop(context);
-                        // Refresh the page
-                        setState(() {});
+                        // Refresh user data to update UI
+                        await _refreshUser();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Preferred time updated!'),
@@ -492,7 +580,7 @@ class _HomeTabState extends State<HomeTab> {
 
                 // Greeting
                 Text(
-                  'Hey, ${widget.user.name.split(' ').first}! 👋',
+                  'Hey, ${_currentUser.name.split(' ').first}! 👋',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: AppTheme.textSecondary,
                   ),
@@ -610,7 +698,7 @@ class _HomeTabState extends State<HomeTab> {
               const Icon(Icons.star, color: Colors.white, size: 14),
               const SizedBox(width: 4),
               Text(
-                '${widget.user.reputationScore}',
+                '${_currentUser.reputationScore}',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -650,7 +738,7 @@ class _HomeTabState extends State<HomeTab> {
         ),
 
         // Female-only mode toggle (for female users only)
-        if (widget.user.gender == 'female') ...[
+        if (_currentUser.gender?.toLowerCase() == 'female') ...[
           const SizedBox(width: 8),
           GestureDetector(
             onTap: () {
@@ -707,7 +795,7 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _buildCompactStatsSection(BuildContext context) {
     final timeData = app_user.PreferredTime.values.firstWhere(
-      (t) => t['value'] == widget.user.preferredTime,
+      (t) => t['value'] == _currentUser.preferredTime,
       orElse: () => app_user.PreferredTime.values[1],
     );
 
@@ -721,7 +809,7 @@ class _HomeTabState extends State<HomeTab> {
               child: _buildCompactStatItem(
                 icon: Icons.emoji_events_outlined,
                 label: 'Rep',
-                value: '${widget.user.reputationScore}',
+                value: '${_currentUser.reputationScore}',
                 iconColor: AppTheme.warning,
               ),
             ),
@@ -730,8 +818,10 @@ class _HomeTabState extends State<HomeTab> {
               child: _buildCompactStatItem(
                 icon: Icons.fitness_center,
                 label: 'Lvl',
-                value: widget.user.experienceLevel != null
-                    ? widget.user.experienceLevel!.substring(0, 1).toUpperCase()
+                value: _currentUser.experienceLevel != null
+                    ? _currentUser.experienceLevel!
+                          .substring(0, 1)
+                          .toUpperCase()
                     : 'B',
                 iconColor: AppTheme.success,
               ),
@@ -1042,30 +1132,35 @@ class _HomeTabState extends State<HomeTab> {
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: _filteredSessions.length > 5
-                ? 5
-                : _filteredSessions.length,
+            itemCount: _filteredSessions.length,
             itemBuilder: (context, index) {
-              return _buildSessionCard(_filteredSessions[index], index);
+              final session = _filteredSessions[index];
+              final isJoined = _userJoinedSessionIds.contains(session.id);
+              return _buildSessionCard(session, index, isJoined);
             },
           ),
 
-        // View all button
-        if (_filteredSessions.length > 5)
+        // Load more button
+        if (_hasMoreSessions && !_isLoadingSessions)
           Padding(
             padding: const EdgeInsets.only(top: 16),
             child: Center(
-              child: TextButton(
-                onPressed: widget.onNavigateToGyms,
-                child: const Text('View All Sessions'),
-              ),
+              child: _isLoadingMore
+                  ? const CircularProgressIndicator(
+                      color: AppTheme.primaryPurple,
+                    )
+                  : TextButton.icon(
+                      onPressed: _loadMoreSessions,
+                      icon: const Icon(Icons.expand_more),
+                      label: const Text('Load More'),
+                    ),
             ),
           ),
       ],
     );
   }
 
-  Widget _buildSessionCard(WorkoutSession session, int index) {
+  Widget _buildSessionCard(WorkoutSession session, int index, bool isJoined) {
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -1108,26 +1203,96 @@ class _HomeTabState extends State<HomeTab> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
-                  Row(
+                  const SizedBox(height: 4),
+                  // Status tags row
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
                     children: [
-                      Text(
-                        session.sessionType,
-                        style: const TextStyle(
-                          color: AppTheme.accentCyan,
-                          fontSize: 12,
+                      // Gym name tag
+                      if (session.gym != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceLight,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            session.gym!['name'] ?? 'Unknown Gym',
+                            style: TextStyle(
+                              color: AppTheme.textMuted,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '• ${session.formattedDate}',
-                        style: TextStyle(
-                          color: AppTheme.textMuted,
-                          fontSize: 11,
+                      // Joined tag
+                      if (isJoined)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.success.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.check_circle,
+                                color: AppTheme.success,
+                                size: 10,
+                              ),
+                              SizedBox(width: 2),
+                              Text(
+                                'Joined',
+                                style: TextStyle(
+                                  color: AppTheme.success,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      if (session.isWomenOnly) ...[
-                        const SizedBox(width: 8),
+                      // Open tag
+                      if (!isJoined && !session.isFull)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentCyan.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.lock_open,
+                                color: AppTheme.accentCyan,
+                                size: 10,
+                              ),
+                              SizedBox(width: 2),
+                              Text(
+                                'Open',
+                                style: TextStyle(
+                                  color: AppTheme.accentCyan,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      // Women Only tag
+                      if (session.isWomenOnly)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 6,
@@ -1137,7 +1302,7 @@ class _HomeTabState extends State<HomeTab> {
                             gradient: LinearGradient(
                               colors: [Colors.pink[400]!, Colors.purple[500]!],
                             ),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(6),
                           ),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
@@ -1145,7 +1310,7 @@ class _HomeTabState extends State<HomeTab> {
                               Icon(Icons.female, color: Colors.white, size: 10),
                               SizedBox(width: 2),
                               Text(
-                                'Women',
+                                'Women Only',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 9,
@@ -1155,30 +1320,69 @@ class _HomeTabState extends State<HomeTab> {
                             ],
                           ),
                         ),
-                      ],
+                      // Date
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surfaceLight,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          session.formattedDate,
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: session.availableSpots > 2
-                    ? AppTheme.success.withValues(alpha: 0.2)
-                    : AppTheme.warning.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '${session.availableSpots} left',
-                style: TextStyle(
-                  color: session.availableSpots > 2
-                      ? AppTheme.success
-                      : AppTheme.warning,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isJoined
+                        ? AppTheme.success.withValues(alpha: 0.2)
+                        : session.availableSpots > 2
+                        ? AppTheme.success.withValues(alpha: 0.2)
+                        : AppTheme.warning.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    isJoined ? 'Joined' : '${session.availableSpots} left',
+                    style: TextStyle(
+                      color: isJoined
+                          ? AppTheme.success
+                          : session.availableSpots > 2
+                          ? AppTheme.success
+                          : AppTheme.warning,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 4),
+                Text(
+                  session.sessionType,
+                  style: const TextStyle(
+                    color: AppTheme.accentCyan,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
