@@ -1,4 +1,5 @@
 // lib/screens/schedule_screen.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -24,31 +25,47 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   bool _isLoading = true;
   String? _error;
 
+  // Realtime subscription
+  StreamSubscription<List<WorkoutSession>>? _sessionsSubscription;
+
   @override
   void initState() {
     super.initState();
     _sessionService = SessionService(Supabase.instance.client);
-    _loadUserSessions();
+    _subscribeToUserSessions();
   }
 
-  Future<void> _loadUserSessions() async {
+  @override
+  void dispose() {
+    _sessionsSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// Subscribe only to user's joined sessions
+  void _subscribeToUserSessions() {
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
-    try {
-      final sessions = await _sessionService.getUserSessions();
-      setState(() {
-        _sessions = sessions;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-    }
+    _sessionsSubscription = _sessionService.subscribeToUserSessions().listen(
+      (sessions) {
+        if (mounted) {
+          setState(() {
+            _sessions = sessions;
+            _isLoading = false;
+          });
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          setState(() {
+            _error = error.toString();
+            _isLoading = false;
+          });
+        }
+      },
+    );
   }
 
   Future<void> _leaveSession(String sessionId) async {
@@ -61,7 +78,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             backgroundColor: AppTheme.success,
           ),
         );
-        _loadUserSessions();
+        // No need to reload - realtime will update automatically
       }
     } catch (e) {
       if (mounted) {
@@ -75,13 +92,20 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 
+  /// Manual refresh - re-subscribes to get latest data
+  Future<void> _refresh() async {
+    _sessionsSubscription?.cancel();
+    _subscribeToUserSessions();
+  }
+
   void _navigateToSessionDetails(WorkoutSession session) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => SessionDetailsScreen(session: session),
       ),
-    ).then((_) => _loadUserSessions());
+    );
+    // No need to reload - realtime subscription will update automatically
   }
 
   @override
@@ -193,7 +217,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   Widget _buildSessionsList() {
     return RefreshIndicator(
-      onRefresh: _loadUserSessions,
+      onRefresh: _refresh,
       color: AppTheme.primaryPurple,
       backgroundColor: AppTheme.surface,
       child: ListView.builder(
@@ -470,7 +494,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             const SizedBox(height: 16),
             GradientButton(
               text: 'Retry',
-              onPressed: _loadUserSessions,
+              onPressed: _refresh,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
           ],
@@ -524,7 +548,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   MaterialPageRoute(
                     builder: (context) => const CreateSessionScreen(),
                   ),
-                ).then((_) => _loadUserSessions());
+                ).then((_) => _refresh());
               },
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
             ),

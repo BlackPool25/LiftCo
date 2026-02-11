@@ -1,4 +1,4 @@
-# LiftCo
+# LiftCo - Gym Buddy Coordination App
 
 A session-based gym buddy coordination app with passive GPS verification, built with Flutter and Supabase.
 
@@ -34,29 +34,123 @@ LiftCo helps fitness enthusiasts find workout partners at their specific gym thr
 | **State Management** | flutter_bloc (BLoC pattern) |
 | **Backend** | Supabase (PostgreSQL, Auth, Storage) |
 | **Authentication** | Supabase Auth (OTP, OAuth) |
+| **API Layer** | Supabase Edge Functions (Deno/TypeScript) |
 | **UI Framework** | Material Design 3 with custom theming |
 
 ### Project Structure
 
 ```
 lib/
-├── blocs/                  # State management (BLoC pattern)
-│   └── auth_bloc.dart      # Authentication state & events
-├── config/                 # App configuration
-│   └── theme.dart          # Premium dark theme with glassmorphism
-├── models/                 # Data models
-│   └── user.dart           # User model & enums (Gender, Experience, etc.)
-├── screens/                # UI screens
-│   ├── login_screen.dart   # Glassmorphic login with OTP & OAuth
-│   ├── profile_setup_screen.dart  # Multi-step profile wizard
-│   └── home_screen.dart    # Dashboard with feature cards
-├── services/               # Business logic & API calls
-│   └── auth_service.dart   # Supabase auth wrapper
-├── widgets/                # Reusable UI components
-│   ├── glass_card.dart     # Glassmorphic card widget
-│   └── gradient_button.dart # Premium gradient buttons
-└── main.dart               # App entry point & routing
+├── blocs/                      # State management (BLoC pattern)
+│   └── auth_bloc.dart          # Authentication state & events
+├── config/                     # App configuration
+│   └── theme.dart              # Premium dark theme with glassmorphism
+├── models/                     # Data models
+│   ├── user.dart               # User model & enums (Gender, Experience, etc.)
+│   ├── workout_session.dart    # Session model with members
+│   └── gym.dart                # Gym model
+├── screens/                    # UI screens
+│   ├── login_screen.dart       # Glassmorphic login with OTP & OAuth
+│   ├── profile_setup_screen.dart   # Multi-step profile wizard
+│   ├── home_screen.dart        # Main dashboard
+│   ├── home_tab.dart           # Home tab with sessions list
+│   ├── gyms_screen.dart        # Gyms listing
+│   ├── gym_details_screen.dart # Gym details with sessions
+│   ├── schedule_screen.dart    # User's joined sessions
+│   ├── session_details_screen.dart   # Session details with members
+│   ├── create_session_screen.dart    # Create new session
+│   └── settings_screen.dart    # User settings
+├── services/                   # Business logic & API calls
+│   ├── supabase_service.dart   # Generic CRUD service for Edge Functions
+│   ├── session_service.dart    # Session operations
+│   ├── session_service_refactored.dart   # Edge Function based sessions
+│   ├── gym_service.dart        # Gym operations
+│   ├── user_service.dart       # User profile operations
+│   └── auth_service.dart       # Supabase auth wrapper
+├── widgets/                    # Reusable UI components
+│   ├── glass_card.dart         # Glassmorphic card widget
+│   ├── gradient_button.dart    # Premium gradient buttons
+│   └── bottom_nav_bar.dart     # Floating navigation
+└── main.dart                   # App entry point & routing
 ```
+
+---
+
+## 🔧 Backend Architecture
+
+### Edge Functions (CRUD Operations)
+
+All backend operations are exposed through Supabase Edge Functions following RESTful conventions:
+
+#### Authentication Functions
+| Function | Method | Description |
+|----------|--------|-------------|
+| `auth-request-otp` | POST | Request phone OTP |
+| `auth-verify-otp` | POST | Verify phone OTP |
+| `auth-email-request-otp` | POST | Request email OTP |
+| `auth-email-verify-otp` | POST | Verify email OTP |
+| `auth-complete-profile` | POST | Complete user profile |
+
+#### User Functions
+| Function | Method | Description |
+|----------|--------|-------------|
+| `users-get-me` | GET | Get current user profile |
+| `users-update-me` | PATCH | Update current user profile |
+
+#### Gym Functions
+| Function | Method | Description |
+|----------|--------|-------------|
+| `gyms-list` | GET | List all gyms with optional search |
+| `gyms-get` | GET | Get single gym details |
+
+#### Session Functions
+| Function | Method | Description |
+|----------|--------|-------------|
+| `sessions-list` | GET | List sessions with filters (gym_id, status, date range) |
+| `sessions-get` | GET | Get single session with members |
+| `sessions-create` | POST | Create new session (auto-joins host) |
+| `sessions-delete` | DELETE | Cancel session (host only) |
+| `sessions-join` | POST | Join a session |
+| `sessions-leave` | POST | Leave a session |
+
+#### Device & Notification Functions
+| Function | Method | Description |
+|----------|--------|-------------|
+| `devices-register` | POST | Register device for push notifications |
+| `devices-remove` | POST | Remove device registration |
+| `notifications-send` | POST | Send push notification |
+
+### Database Triggers
+
+#### Session Member Count Management
+Automatic count management via PostgreSQL triggers:
+
+```sql
+-- Trigger: update_session_count_on_member_insert
+-- Automatically increments current_count when member joins
+
+-- Trigger: update_session_count_on_member_update
+-- Adjusts count when member status changes (joined/cancelled)
+```
+
+**Why Triggers?**
+- Prevents count desynchronization between `session_members` table and `current_count` field
+- Ensures ACID compliance - count updates are part of the same transaction
+- No application-level race conditions
+
+### Row Level Security (RLS) Policies
+
+All tables have RLS enabled with the following policies:
+
+#### workout_sessions
+- **SELECT**: Users can see public sessions or women-only sessions (if female)
+- **INSERT**: Users can create sessions (women-only only if female)
+- **UPDATE**: Only host can update their sessions
+
+#### session_members
+- **SELECT**: All authenticated users can see members
+- **INSERT**: Users can join sessions (women-only only if female)
+- **UPDATE**: Users can only update their own membership status
 
 ---
 
@@ -87,15 +181,15 @@ The app uses a premium dark aesthetic with glassmorphism effects.
 2. **FeatureCard** - Gradient card with mesh-style colors
 3. **GradientButton** - Button with gradient background and glow effect
 4. **OAuthButton** - Social sign-in buttons with icons
-5. **BentoItem** - Grid item for bento-box layouts
+5. **SessionCard** - Displays session info with status tags
 
 ---
 
-## 🔐 Authentication Implementation
+## 🔐 Authentication Flow
 
 ### Supported Methods
 
-1. **Email Magic Link** - Passwordless email verification via magic link
+1. **Email OTP** - Passwordless email verification via magic link
 2. **Phone OTP** - SMS-based verification
 3. **Google OAuth** - Sign in with Google
 4. **Apple Sign-In** - Sign in with Apple ID
@@ -104,8 +198,8 @@ The app uses a premium dark aesthetic with glassmorphism effects.
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Login     │───▶│ Magic Link  │───▶│   Profile   │
-│   Screen    │    │   Sent UI   │    │   Setup     │
+│   Login     │───▶│  OTP Sent   │───▶│   Profile   │
+│   Screen    │    │   Screen    │    │   Setup     │
 └─────────────┘    └─────────────┘    └─────────────┘
        │                                     │
        │ (OAuth)                             ▼
@@ -115,301 +209,383 @@ The app uses a premium dark aesthetic with glassmorphism effects.
                                       └─────────────┘
 ```
 
-**Email Magic Link Flow:**
-1. User enters email on login screen
-2. `SignInWithEmailRequested` event dispatched
-3. Supabase sends magic link email
-4. `MagicLinkSent` state emitted → Confirmation UI shown
-5. User clicks link in email → redirected back to app
-6. `Authenticated` or `NeedsProfileCompletion` state emitted
+**Profile Setup Steps:**
+1. **Step 1**: Name, Age, Gender selection
+2. **Step 2**: Experience level cards with icons
+3. **Step 3**: Preferred time grid (gradient cards)
+4. **Step 4**: Workout split chips, Bio textarea
 
-### BLoC Events & States
+---
 
-**Events:**
-- `SignInWithEmailRequested` - Trigger email OTP
-- `SignInWithPhoneRequested` - Trigger phone OTP
-- `VerifyEmailOTPRequested` - Verify email code
-- `VerifyPhoneOTPRequested` - Verify phone code
-- `SignInWithGoogleRequested` - Google OAuth
-- `SignInWithAppleRequested` - Apple OAuth
-- `CompleteProfileRequested` - Submit profile data
-- `SignOutRequested` - Log out user
+## 🏋️ Session Management Flow
 
-**States:**
-- `AuthInitial` - Initial state
-- `AuthLoading` - Auth operation in progress
-- `OTPSent` - OTP sent (phone), awaiting verification
-- `MagicLinkSent` - Magic link sent (email), showing confirmation UI
-- `Authenticated` - User logged in with complete profile
-- `NeedsProfileCompletion` - User logged in, needs profile setup
-- `Unauthenticated` - User not logged in
-- `AuthError` - Error occurred
+### Creating a Session
 
-### OAuth Configuration
-
-**For Web Development:**
-```bash
-flutter run -d chrome --web-port=3000
+```
+User (Host)
+    │
+    ▼
+Create Session Screen
+    │
+    ├──▶ Select Gym
+    ├──▶ Enter Title & Type
+    ├──▶ Select Date & Time
+    ├──▶ Set Max Capacity (2-10)
+    ├──▶ [Female Only] Toggle Women-Only
+    └──▶ Create
+              │
+              ▼
+    ┌─────────────────────────────┐
+    │  sessions-create Edge Func  │
+    │                             │
+    │  1. Create session with     │
+    │     current_count = 0       │
+    │  2. Add host to             │
+    │     session_members         │
+    │  3. TRIGGER: auto-increment │
+    │     current_count to 1      │
+    └─────────────────────────────┘
+              │
+              ▼
+    Session Created Successfully
 ```
 
-**Required redirect URIs:**
-- Web: `http://localhost:3000`
-- Android: `com.liftco.liftco://login-callback/`
-- iOS: `com.liftco.liftco://login-callback/`
+**Key Points:**
+- Host is automatically joined to the session
+- Database trigger manages count (prevents double-counting)
+- Session appears in host's schedule immediately
 
-**Android Deep Link Setup (AndroidManifest.xml):**
-```xml
-<intent-filter android:autoVerify="true">
-    <action android:name="android.intent.action.VIEW"/>
-    <category android:name="android.intent.category.DEFAULT"/>
-    <category android:name="android.intent.category.BROWSABLE"/>
-    <data android:scheme="com.liftco.liftco" android:host="login-callback"/>
-</intent-filter>
+### Joining a Session
+
+```
+User (Participant)
+    │
+    ▼
+Browse Sessions (Home/Gym)
+    │
+    ├──▶ View Session Details
+    │        └──▶ See Host & Members
+    │
+    └──▶ Click "Join Session"
+              │
+              ▼
+    ┌─────────────────────────────┐
+    │   sessions-join Edge Func   │
+    │                             │
+    │  1. Check: Not already      │
+    │     joined                  │
+    │  2. Check: Session not full │
+    │  3. Check: No time conflicts│
+    │  4. Insert member record    │
+    │  5. TRIGGER: Increment      │
+    │     current_count           │
+    └─────────────────────────────┘
+              │
+              ▼
+    Joined Successfully
+    Shows "Already Joined" button
 ```
 
-**Supabase Dashboard Configuration:**
-1. Go to Authentication → URL Configuration
-2. Add `com.liftco.liftco://login-callback/` to Redirect URLs
+**Validation Checks:**
+- ✅ User not already joined
+- ✅ Session has available spots
+- ✅ No time conflicts with other joined sessions
+- ✅ Session is upcoming (not started/cancelled)
+
+### Leaving a Session
+
+```
+User (Participant)
+    │
+    ▼
+Schedule Screen
+    │
+    ├──▶ Swipe to Leave
+    │
+    └──▶ Confirm Leave
+              │
+              ▼
+    ┌─────────────────────────────┐
+    │  sessions-leave Edge Func   │
+    │                             │
+    │  1. Check: User is member   │
+    │  2. Check: User is not host │
+    │  3. Update status to        │
+    │     'cancelled'             │
+    │  4. TRIGGER: Decrement      │
+    │     current_count           │
+    └─────────────────────────────┘
+              │
+              ▼
+    Left Successfully
+```
+
+### Cancelling a Session (Host Only)
+
+```
+Host
+    │
+    ▼
+Session Details
+    │
+    └──▶ Click "Cancel Session"
+              │
+              ▼
+    ┌─────────────────────────────┐
+    │ sessions-delete Edge Func   │
+    │                             │
+    │  1. Check: User is host     │
+    │  2. Cancel all memberships  │
+    │  3. Set status to           │
+    │     'cancelled'             │
+    └─────────────────────────────┘
+              │
+              ▼
+    Session Cancelled
+    All members notified
+```
+
+---
+
+## 👥 Member Management
+
+### Displaying Members
+
+Session details show all members with their status:
+
+**Member Cards Display:**
+- Avatar with initial
+- Name
+- Joined time (e.g., "2h ago")
+- **Host** badge (for session creator)
+- **You** badge (for current user)
+
+**Privacy:**
+- Only joined members see full member list
+- Host always visible to participants
+- RLS ensures users can only see members of sessions they can access
+
+### Member States
+
+| Status | Description | Visible To |
+|--------|-------------|------------|
+| `joined` | Active member | All session participants |
+| `cancelled` | Left session | Host only |
+| `completed` | Session finished | Host only |
+| `no_show` | Didn't attend | Host only |
 
 ---
 
 ## 🛡️ Women Safety Feature
 
-LiftCo prioritizes user safety with a comprehensive women-only session feature that creates safe spaces for female users.
+### Women-Only Sessions
 
-### ⚠️ IMPORTANT: Required Database Setup
+**Creating:**
+- Only female users can create women-only sessions
+- Toggle appears in create form for female users only
+- Sessions marked with pink/purple gradient badge
 
-**You MUST run the SQL migration to enable the women safety feature:**
+**Visibility:**
+- Women-only sessions only visible to female users
+- Enforced at database level via RLS policies
+- "Women Only" badge shown on all session cards
 
-1. Go to your Supabase Dashboard → SQL Editor
-2. Run the migration file: `supabase/migrations/20250210220000_fix_session_members_schema_and_add_women_safety.sql`
-3. This migration:
-   - Fixes the session_members.session_id column type (converts from bigint to uuid)
-   - Creates proper foreign key relationship with workout_sessions
-   - Adds the `women_only` column
-   - Creates the RLS policies that enforce gender-based access control
+**Filter:**
+- Female users can toggle between "All" and "Women" sessions
+- Toggle in Home tab app bar and Gym details screen
 
-**Without running this migration:**
-- ❌ Women-only sessions will be visible to everyone
-- ❌ No gender-based filtering will occur
-- ❌ Security policies will not be enforced
-- ❌ Schema type mismatch errors will occur
+### Gender Verification
 
-### ⚠️ DATA LOSS WARNING
-
-**This migration will TRUNCATE (delete all data from) the session_members table** to fix the column type from bigint to uuid. This is necessary because you cannot directly convert bigint to uuid.
-
-If you have important session membership data that needs to be preserved, please back it up before running this migration.
-
-### Features
-
-**1. Women-Only Sessions**
-- Female users can create sessions exclusively for women
-- Sessions marked with "Women Only" badge (pink/purple gradient)
-- Only visible to female users in the app
-- RLS policies enforce gender-based access control at database level
-
-**2. Female-Only Mode Toggle**
-- Quick toggle button in home screen app bar (top right, female users only)
-- When enabled, shows only women-only sessions
-- Toggle states: "All" (shows all sessions) / "Women" (women-only only)
-- Pink/purple gradient styling when active
-
-**3. Session Creation**
-- Female users see "Session Type" toggle when creating sessions
-- Options: "General Session" (open to all) or "Women Only" (female-only)
-- Visual indicator with female icon and descriptive text
-- Switch control with pink accent colors
-
-**4. Visual Indicators**
-- Women-only sessions display badge in session cards
-- Badge shows female icon + "Women" text
-- Pink/purple gradient styling consistent across UI
-- Badge appears next to session type in card listings
-
-**5. Security & Privacy**
-- **RLS Policy**: Only female users can see women_only = true sessions
-- **RLS Policy**: Only female users can create women-only sessions
-- **RLS Policy**: Only female users can join women-only sessions
-- Database-level enforcement prevents unauthorized access
-
-### Database Schema
-
-**workout_sessions.women_only** (boolean, default: false)
-- Marks session as women-only when true
-- Indexed for query performance
-- Enforced by RLS policies
-
-**Users Table Gender Field**
-- Required for women-only feature enforcement
-- Values: 'male', 'female', 'non_binary', 'prefer_not_to_say'
-- Only 'female' users can create/join women-only sessions
-
-### Implementation Details
-
-**Files Modified:**
-- `supabase/migrations/20250210200000_add_women_safety_feature.sql` - Database migration (REQUIRED)
-- `lib/models/workout_session.dart` - Added womenOnly field
-- `lib/screens/create_session_screen.dart` - Added women-only toggle UI
-- `lib/screens/home_tab.dart` - Added female-only mode toggle and filtering
-- `lib/services/session_service.dart` - Updated createSession with womenOnly parameter
-- `lib/services/gym_service.dart` - Updated queries to respect women-only sessions
-
-**Security:**
-All access control enforced at database level via Row Level Security policies:
-- SELECT: Women-only sessions only visible to female users
-- INSERT: Only female users can create women-only sessions
-- session_members INSERT: Only female users can join women-only sessions
+Gender is stored in user profile and verified at:
+- Session creation (can only create women-only if female)
+- Session visibility (RLS policy filters)
+- Joining (can only join women-only if female)
 
 ---
 
-## 🗄️ Database Schema
+## 📊 User Stats & Profile
 
-### Supabase Project
+### Home Tab Stats
 
-**Project ID:** `bpfptwqysbouppknzaqk`
+Three compact stats displayed:
 
-### Tables
+1. **Reputation** - User reputation score (0-100)
+2. **Level** - Experience level (Beginner, Intermediate, Advanced)
+3. **Preferred Time** - Workout preference (Early Bird, Morning, Afternoon, Evening)
 
-#### `users`
-| Column | Type | Constraints |
-|--------|------|-------------|
-| `id` | uuid | PK, default: `gen_random_uuid()` |
-| `name` | varchar | NOT NULL |
-| `email` | varchar | UNIQUE, nullable |
-| `phone_number` | varchar | UNIQUE, nullable |
-| `age` | integer | CHECK: 13-120, nullable |
-| `gender` | varchar | nullable |
-| `experience_level` | enum | beginner, intermediate, advanced |
-| `preferred_time` | varchar | early_morning, morning, afternoon, evening |
-| `current_workout_split` | varchar | See workout splits below |
-| `time_working_out_months` | integer | nullable |
-| `bio` | text | nullable |
-| `reputation_score` | integer | default: 100, CHECK: 0-100 |
-| `home_gym_id` | bigint | FK → gyms.id |
-| `profile_photo_url` | varchar | nullable |
-| `created_at` | timestamptz | default: now() |
-| `updated_at` | timestamptz | default: now() |
+### Editing Preferred Time
 
-**Workout Split Values:**
-| Value | Label | Description |
-|-------|-------|-------------|
-| `ppl` | Push Pull Legs | 3-6 day PPL split |
-| `upper_lower` | Upper/Lower | 4 day upper/lower split |
-| `bro_split` | Bro Split | 5 day body part split |
-| `full_body` | Full Body | 2-3 day full body |
-| `arnold` | Arnold Split | Chest/Back, Shoulders/Arms, Legs |
-| `phul` | PHUL | Power Hypertrophy Upper Lower |
-| `phat` | PHAT | Power Hypertrophy Adaptive Training |
-| `strength` | Strength/Powerlifting | Focus on compound lifts |
-| `cardio_focused` | Cardio Focused | Primarily cardiovascular |
-| `crossfit` | CrossFit | High-intensity functional movements |
-| `yoga` | Yoga/Mobility | Flexibility focus |
-| `hybrid` | Hybrid | Mixed approach |
-| `other` | Other | Custom routines |
+```
+User
+    │
+    ▼
+Click Preferred Time Card
+    │
+    ▼
+Bottom Sheet Opens
+    │
+    ├──▶ Select New Time
+    │        └──▶ Immediate UI update (local state)
+    │        └──▶ API call to update
+    │        └──▶ Show success/error
+    │
+    └──▶ Click "Done" to close
+              (or tap outside)
+```
 
-**Constraints:**
-- `valid_contact_info`: Either `email` OR `phone_number` must be provided
-
-#### `user_devices`
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | PK, auto-generated |
-| `user_id` | uuid | FK → users.id |
-| `fcm_token` | varchar | Firebase Cloud Messaging token |
-| `device_type` | varchar | web, android, ios |
-| `device_name` | varchar | Device model/browser info |
-| `is_active` | boolean | Whether device is active |
-| `last_seen_at` | timestamptz | Last activity timestamp |
-| `created_at` | timestamptz | When device was registered |
-
-**Device Registration Flow:**
-- Devices are automatically registered when a user logs in (OAuth, Magic Link, or OTP)
-- Devices are deactivated when the user logs out
-- FCM tokens are used for push notifications
-
-#### `gyms`
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | bigint | PK (identity) |
-| `name` | varchar | Gym name |
-| `latitude` | numeric | GPS latitude (-90 to 90) |
-| `longitude` | numeric | GPS longitude (-180 to 180) |
-| `address` | text | Physical address |
-| `opening_days` | int[] | Days open (1-7) |
-| `opening_time` | time | Opening time |
-| `closing_time` | time | Closing time |
-| `phone` | varchar | Contact number |
-| `email` | varchar | Contact email |
-| `amenities` | text[] | Available amenities |
-
-#### `workout_sessions`
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | PK |
-| `gym_id` | bigint | FK → gyms.id |
-| `host_user_id` | uuid | FK → users.id |
-| `title` | varchar | Session title |
-| `session_type` | varchar | Workout type for the session |
-| `description` | text | Session details |
-| `start_time` | timestamptz | Must be in future |
-| `duration_minutes` | integer | 1-480 minutes |
-| `max_capacity` | integer | 1-20 (default: 4) |
-| `current_count` | integer | Current participants |
-| `status` | enum | upcoming, in_progress, finished, cancelled |
-| `women_only` | boolean | Women-only session flag (default: false) |
-
-#### `session_members`
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | uuid | PK |
-| `session_id` | bigint | FK → workout_sessions |
-| `user_id` | uuid | FK → users.id |
-| `status` | varchar | joined, cancelled, completed, no_show |
-| `joined_at` | timestamptz | When user joined |
-
-### Row Level Security (RLS)
-
-All tables have RLS enabled. Users can only:
-- Read their own profile data
-- Update their own profile
-- Read public gym information
-- Create/join sessions at their home gym
-- Manage their own device registrations
+**Key Features:**
+- Real-time UI feedback
+- Doesn't close on selection
+- Shows checkmark for selected option
+- Animated transitions
 
 ---
 
-## 📱 Screen Implementations
+## 🔄 Data Flow & State Management
 
-### Login Screen
-- Glassmorphic card with animated gradient orbs background
-- Toggle between Email and Phone input
-- **Magic Link Confirmation UI** - Full-width centered layout with:
-  - Gradient icon badge
-  - Email highlighted in styled pill
-  - Back to login & Resend link options
-- Individual OTP digit boxes (6 digits) for phone verification
-- Google and Apple OAuth buttons
-- Smooth entrance animations with stagger
+### CRUD Service Pattern
 
-**LoginScreen Widget Props:**
-- `magicLinkEmail` (optional) - If provided, shows magic link confirmation UI
+All API calls go through standardized service layer:
 
-### Profile Setup Screen
-- 4-step wizard with animated progress bar
-- **Step 1**: Name, Age, Gender selection
-- **Step 2**: Experience level cards with icons
-- **Step 3**: Preferred time grid (gradient cards)
-- **Step 4**: Workout split chips, Bio textarea
-- Glassmorphic selection cards with checkmarks
+```dart
+// Generic CRUD Service
+class SupabaseService {
+  Future<Map<String, dynamic>> get(String function, {params});
+  Future<Map<String, dynamic>> post(String function, {body});
+  Future<Map<String, dynamic>> patch(String function, {body});
+  Future<Map<String, dynamic>> delete(String function, {params});
+}
 
-### Home Screen
-- Glassmorphic app bar with notification bell
-- Feature card with mesh gradient (hero section)
-- Quick action chips (Nearby Gyms, Schedule, Buddies)
-- Stats grid (Reputation, Level, Preferred Time)
-- Upcoming sessions list with empty state
-- Floating action button for new sessions
+// Specific Services use CRUD
+class SessionService {
+  Future<List<WorkoutSession>> listSessions({...});
+  Future<WorkoutSession> createSession({...});
+  Future<void> joinSession(String id);
+  Future<void> leaveSession(String id);
+}
+```
+
+### Benefits:
+- **Consistency** - Same pattern across all features
+- **Testability** - Easy to mock service layer
+- **Maintainability** - Changes in one place affect all
+- **Error Handling** - Centralized error handling
+
+---
+
+## 📱 Screen Flows
+
+### Home Tab
+
+```
+┌─────────────────────────────────────┐
+│  Hey, [Name]! 👋                    │
+│  Ready to crush your workout?       │
+├─────────────────────────────────────┤
+│  [Rep] [Level] [Preferred Time ▼]  │
+├─────────────────────────────────────┤
+│  Explore Sessions >                 │
+├─────────────────────────────────────┤
+│  Available Sessions      [Filter]   │
+│  ┌───────────────────────────────┐ │
+│  │ 🏋️ Session Title         Joined│ │
+│  │ [Gym] [Open] [Women] [Today]   │ │
+│  └───────────────────────────────┘ │
+│  ┌───────────────────────────────┐ │
+│  │ 🏋️ Another Session       Open │ │
+│  │ [Gym] [2 spots left]          │ │
+│  └───────────────────────────────┘ │
+│              [Load More]            │
+└─────────────────────────────────────┘
+```
+
+### Gym Details
+
+```
+┌─────────────────────────────────────┐
+│  < Gym Name                         │
+├─────────────────────────────────────┤
+│  ┌───────────────────────────────┐ │
+│  │        [Gym Image]            │ │
+│  │  Gym Name                     │ │
+│  │  📍 Address                   │ │
+│  │  🕐 Hours                     │ │
+│  └───────────────────────────────┘ │
+├─────────────────────────────────────┤
+│  Available Sessions    [All▼]       │
+│  ┌───────────────────────────────┐ │
+│  │ Session Title          [Women]│ │
+│  │ [Push Pull Legs] [Today 6PM]  │ │
+│  │ Host: Sarah        2 spots    │ │
+│  └───────────────────────────────┘ │
+├─────────────────────────────────────┤
+│     [+ Create Session]              │
+└─────────────────────────────────────┘
+```
+
+### Schedule Tab
+
+```
+┌─────────────────────────────────────┐
+│  Your Schedule                      │
+│  Manage your upcoming sessions      │
+├─────────────────────────────────────┤
+│  [Upcoming: 3]    [Today: 1]       │
+├─────────────────────────────────────┤
+│  ┌───────────────────────────────┐ │
+│  │ 🏋️ Morning Push Day      Host │ │
+│  │ [Push Pull Legs] [Women Only] │ │
+│  │ ───────────────────────────── │ │
+│  │ 📅 Today  🕐 6:00-7:00 AM     │ │
+│  │ 👥 3/4 members                │ │
+│  └───────────────────────────────┘ │
+│  ┌───────────────────────────────┐ │
+│  │ 🏋️ Leg Day Session     Joined │ │
+│  │ [Legs]                        │ │
+│  │ ───────────────────────────── │ │
+│  │ 📅 Tomorrow  🕐 5:00-6:00 PM  │ │
+│  │ 👥 2/6 members                │ │
+│  └───────────────────────────────┘ │
+│  (Swipe to leave)                   │
+└─────────────────────────────────────┘
+```
+
+### Session Details
+
+```
+┌─────────────────────────────────────┐
+│  < Session Details                  │
+├─────────────────────────────────────┤
+│  [Push Pull Legs] [upcoming]        │
+│  Morning Push Day                   │
+│  Focus on chest, shoulders, triceps │
+│  ────────────────────────────────── │
+│  📅 Today                           │
+│  🕐 6:00 AM - 7:00 AM               │
+│  ⏱️ 60 minutes                      │
+│  ────────────────────────────────── │
+│  👤 Host: Sarah          2 spots    │
+├─────────────────────────────────────┤
+│  Members (3/4)                      │
+│  ┌───────────────────────────────┐ │
+│  │ 👤 Sarah               HOST   │ │
+│  │ Joined 2h ago                 │ │
+│  └───────────────────────────────┘ │
+│  ┌───────────────────────────────┐ │
+│  │ 👤 Mike                       │ │
+│  │ Joined 1h ago                 │ │
+│  └───────────────────────────────┘ │
+│  ┌───────────────────────────────┐ │
+│  │ 👤 You                 YOU    │ │
+│  │ Joined 30m ago                │ │
+│  └───────────────────────────────┘ │
+├─────────────────────────────────────┤
+│  [✓ You've Joined]                  │
+│  [Cancel Session]      (Host only)  │
+│  [Leave Session]       (Member only)│
+│  [Join Session]        (New user)   │
+└─────────────────────────────────────┘
+```
 
 ---
 
@@ -481,13 +657,16 @@ flutter build web --release
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `supabase_flutter` | ^2.8.4 | Supabase client |
+| `supabase_flutter` | ^2.8.0 | Supabase client |
+| `http` | ^1.2.0 | HTTP client for Edge Functions |
 | `flutter_bloc` | ^8.1.6 | State management |
 | `go_router` | ^15.1.2 | Navigation |
 | `flutter_animate` | ^4.5.2 | Animations |
 | `google_fonts` | ^6.2.1 | Typography |
 | `font_awesome_flutter` | ^10.8.0 | Icons |
 | `flutter_dotenv` | ^5.2.1 | Environment variables |
+| `firebase_core` | ^3.1.0 | Firebase core |
+| `firebase_messaging` | ^15.0.0 | Push notifications |
 
 ---
 
@@ -523,9 +702,13 @@ flutter drive --target=test_driver/app.dart
 - Add `http://localhost:3000` to Google Cloud Console redirect URIs
 - Configure Supabase dashboard with redirect URLs
 
-### Database Constraint Errors
-- `valid_phone` error: Fixed by `allow_email_or_phone_contact` migration
-- `age NOT NULL` error: Fixed by making age nullable
+### Database Issues
+- **Count Mismatch**: Database triggers should auto-fix. Run migration if needed:
+  ```sql
+  SELECT * FROM information_schema.triggers 
+  WHERE trigger_name LIKE 'update_session_count%';
+  ```
+- **RLS Policy Errors**: Ensure migrations have been applied
 
 ### Build Issues
 ```bash
@@ -543,3 +726,31 @@ This project is licensed under the MIT License.
 ---
 
 **Built with ❤️ for fitness enthusiasts**
+
+## Recent Changes & Updates
+
+### Session Management Fixes
+- ✅ Fixed session member counting with database triggers
+- ✅ Added "Already Joined" button state
+- ✅ Host can now cancel sessions
+- ✅ Members can leave sessions with swipe gesture
+- ✅ Members list properly displays with names
+
+### UI/UX Improvements
+- ✅ Fixed preferred time picker with real-time updates
+- ✅ Fixed training level display (shows full word)
+- ✅ Removed reputation score from top app bar
+- ✅ Added status tags (Joined, Open, Women Only)
+- ✅ Implemented pagination with "Load More"
+
+### Architecture Improvements
+- ✅ Created generic CRUD service for Edge Functions
+- ✅ Refactored session service to use Edge Functions
+- ✅ Standardized API error handling
+- ✅ Added comprehensive type safety
+
+### Database Updates
+- ✅ Added triggers for automatic count management
+- ✅ Fixed session_members schema with proper UUID types
+- ✅ Added women_only column with RLS policies
+- ✅ Verified all RLS policies are working correctly

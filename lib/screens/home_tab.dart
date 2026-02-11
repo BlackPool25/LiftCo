@@ -1,4 +1,5 @@
 // lib/screens/home_tab.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,6 +7,7 @@ import '../config/theme.dart';
 import '../models/user.dart' as app_user;
 import '../models/workout_session.dart';
 import '../services/user_service.dart';
+import '../services/session_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
 import 'session_details_screen.dart';
@@ -27,6 +29,7 @@ class HomeTab extends StatefulWidget {
 
 class _HomeTabState extends State<HomeTab> {
   late UserService _userService;
+  late SessionService _sessionService;
 
   List<WorkoutSession> _allSessions = [];
   List<WorkoutSession> _filteredSessions = [];
@@ -51,12 +54,272 @@ class _HomeTabState extends State<HomeTab> {
   bool _isLoadingMore = false;
   Set<String> _userJoinedSessionIds = {};
 
+  // Realtime subscriptions
+  final Map<String, StreamSubscription<WorkoutSession?>> _sessionSubscriptions =
+      {};
+  StreamSubscription<List<Map<String, dynamic>>>? _newSessionsSubscription;
+  StreamSubscription<List<dynamic>>? _userMembershipsSubscription;
+
+  // Flag to prevent subscription from adding duplicates during initial load
+  bool _isInitialLoading = true;
+
+  // Cache for gym names (gym_id -> gym_name)
+  final Map<int, String> _gymNamesCache = {};
+
   @override
   void initState() {
     super.initState();
     _userService = UserService(Supabase.instance.client);
+    _sessionService = SessionService(Supabase.instance.client);
     _currentUser = widget.user;
     _loadSessions();
+    _subscribeToUserMemberships();
+    _subscribeToRecentSessions();
+  }
+
+  @override
+  void dispose() {
+    // Cancel all individual session subscriptions
+    for (final subscription in _sessionSubscriptions.values) {
+      subscription.cancel();
+    }
+    _newSessionsSubscription?.cancel();
+    _userMembershipsSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// Subscribe to specific visible sessions only (not all sessions)
+  void _subscribeToVisibleSessions() {
+    // Get currently visible session IDs
+    final visibleSessionIds = _filteredSessions.map((s) => s.id).toSet();
+
+    // Cancel subscriptions for sessions no longer visible
+    final sessionsToUnsubscribe = _sessionSubscriptions.keys
+        .where((id) => !visibleSessionIds.contains(id))
+        .toList();
+
+    for (final sessionId in sessionsToUnsubscribe) {
+      _sessionSubscriptions[sessionId]?.cancel();
+      _sessionSubscriptions.remove(sessionId);
+    }
+
+    // Subscribe to newly visible sessions
+    for (final session in _filteredSessions) {
+      if (!_sessionSubscriptions.containsKey(session.id)) {
+        _sessionSubscriptions[session.id] = _sessionService
+            .subscribeToSession(session.id)
+            .listen(
+              (updatedSession) {
+                if (updatedSession != null && mounted) {
+                  setState(() {
+                    // Update the session in the list
+                    final index = _allSessions.indexWhere(
+                      (s) => s.id == session.id,
+                    );
+                    if (index != -1) {
+                      _allSessions[index] = updatedSession;
+                      _applyFilters();
+                    }
+                  });
+                } else if (updatedSession == null && mounted) {
+                  // Session was deleted/cancelled
+                  setState(() {
+                    _allSessions.removeWhere((s) => s.id == session.id);
+                    _applyFilters();
+                  });
+                }
+              },
+              onError: (error) {
+                debugPrint(
+                  'Error in session subscription for ${session.id}: $error',
+                );
+              },
+            );
+      }
+    }
+  }
+
+  /// Subscribe to recent upcoming sessions (top 15 by start time)
+  /// This ensures we catch new sessions as they're created
+  void _subscribeToRecentSessions() {
+    _newSessionsSubscription = Supabase.instance.client
+        .from('workout_sessions')
+        .stream(primaryKey: ['id'])
+        .listen(
+          (sessions) {
+            if (!mounted) return;
+
+            // Skip processing during initial load to avoid duplicates
+            if (_isInitialLoading) return;
+
+            // Filter to only upcoming sessions that haven't started
+            var upcomingSessions = sessions
+                .where(
+                  (s) =>
+                      s['status'] == 'upcoming' &&
+                      DateTime.parse(s['start_time']).isAfter(DateTime.now()),
+                )
+                .toList();
+
+            // Sort by start_time to get the most recent/upcoming first
+            upcomingSessions.sort(
+              (a, b) => DateTime.parse(
+                a['start_time'],
+              ).compareTo(DateTime.parse(b['start_time'])),
+            );
+
+            // Take top 15 sessions
+            final topSessions = upcomingSessions.take(15).toList();
+            final topSessionIds = topSessions
+                .map((s) => s['id'] as String)
+                .toSet();
+
+            // Check if we need to refresh the list
+            final currentIds = _allSessions.map((s) => s.id).toSet();
+
+            // New sessions that should be added
+            final newSessionIds = topSessionIds.difference(currentIds);
+
+            // Sessions that should be removed (no longer in top 15 or cancelled)
+            final removedSessionIds = currentIds.difference(topSessionIds);
+
+            if (newSessionIds.isNotEmpty) {
+              // Fetch full details for new sessions (including gym data)
+              _fetchAndMergeSessions(newSessionIds.toList());
+            }
+
+            // Refresh existing sessions to get updated data (including gym info)
+            final existingSessionIds = topSessionIds
+                .intersection(currentIds)
+                .toList();
+            if (existingSessionIds.isNotEmpty) {
+              _refreshExistingSessions(existingSessionIds);
+            }
+
+            if (removedSessionIds.isNotEmpty) {
+              setState(() {
+                for (final id in removedSessionIds) {
+                  _allSessions.removeWhere((s) => s.id == id);
+                  _sessionSubscriptions[id]?.cancel();
+                  _sessionSubscriptions.remove(id);
+                }
+                _applyFilters();
+              });
+            }
+
+            // Note: Individual session updates are handled by _subscribeToVisibleSessions()
+            // which subscribes to each visible session for detailed updates
+
+            // Sort and filter
+            _allSessions.sort((a, b) => a.startTime.compareTo(b.startTime));
+            _applyFilters();
+
+            // Subscribe to visible sessions
+            _subscribeToVisibleSessions();
+          },
+          onError: (error) {
+            debugPrint('Error in recent sessions subscription: $error');
+          },
+        );
+  }
+
+  /// Refresh existing sessions with full data including gym info
+  Future<void> _refreshExistingSessions(List<String> sessionIds) async {
+    try {
+      final response = await Supabase.instance.client
+          .from('workout_sessions')
+          .select('''
+            *,
+            host:host_user_id(id, name),
+            gym:gym_id(name)
+          ''')
+          .inFilter('id', sessionIds);
+
+      final updatedSessions = (response as List)
+          .map((json) => WorkoutSession.fromJson(json))
+          .toList();
+
+      if (mounted && updatedSessions.isNotEmpty) {
+        setState(() {
+          for (final updatedSession in updatedSessions) {
+            final index = _allSessions.indexWhere(
+              (s) => s.id == updatedSession.id,
+            );
+            if (index != -1) {
+              _allSessions[index] = updatedSession;
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error refreshing existing sessions: $e');
+    }
+  }
+
+  /// Fetch and merge new sessions into the list (avoiding duplicates)
+  Future<void> _fetchAndMergeSessions(List<String> sessionIds) async {
+    try {
+      // Filter out IDs that are already in _allSessions
+      final existingIds = _allSessions.map((s) => s.id).toSet();
+      final newIds = sessionIds
+          .where((id) => !existingIds.contains(id))
+          .toList();
+
+      if (newIds.isEmpty) return;
+
+      final response = await Supabase.instance.client
+          .from('workout_sessions')
+          .select('''
+            *,
+            host:host_user_id(id, name),
+            gym:gym_id(name)
+          ''')
+          .inFilter('id', newIds);
+
+      final sessions = (response as List)
+          .map((json) => WorkoutSession.fromJson(json))
+          .toList();
+
+      if (mounted && sessions.isNotEmpty) {
+        setState(() {
+          _allSessions.addAll(sessions);
+          // Sort by start time
+          _allSessions.sort((a, b) => a.startTime.compareTo(b.startTime));
+          _applyFilters();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching new sessions: $e');
+    }
+  }
+
+  /// Subscribe to user's membership changes (only their own)
+  void _subscribeToUserMemberships() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    _userMembershipsSubscription = Supabase.instance.client
+        .from('session_members')
+        .stream(primaryKey: ['id'])
+        .map(
+          (data) => data
+              .where((m) => m['user_id'] == user.id && m['status'] == 'joined')
+              .toList(),
+        )
+        .listen(
+          (memberships) {
+            if (mounted) {
+              setState(() {
+                _userJoinedSessionIds = memberships
+                    .map((m) => m['session_id'] as String)
+                    .toSet();
+              });
+            }
+          },
+          onError: (error) {
+            debugPrint('Error in memberships subscription: $error');
+          },
+        );
   }
 
   Future<void> _refreshUser() async {
@@ -69,71 +332,6 @@ class _HomeTabState extends State<HomeTab> {
       }
     } catch (e) {
       // Silently fail - user data will be refreshed on next screen visit
-    }
-  }
-
-  Future<void> _loadSessions() async {
-    setState(() {
-      _isLoadingSessions = true;
-      _sessionsError = null;
-      _currentPage = 0;
-      _hasMoreSessions = true;
-    });
-
-    try {
-      // Fetch user's joined sessions to determine status tags
-      await _loadUserJoinedSessions();
-
-      // Fetch upcoming sessions from all gyms with pagination
-      final response = await Supabase.instance.client
-          .from('workout_sessions')
-          .select('''
-            *,
-            host:host_user_id(id, name),
-            gym:gym_id(name)
-          ''')
-          .eq('status', 'upcoming')
-          .gte('start_time', DateTime.now().toIso8601String())
-          .order('start_time', ascending: true)
-          .limit(_sessionsPerPage);
-
-      final sessions = (response as List)
-          .map((json) => WorkoutSession.fromJson(json))
-          .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
-          .toList();
-
-      setState(() {
-        _allSessions = sessions;
-        _filteredSessions = sessions;
-        _isLoadingSessions = false;
-        _hasMoreSessions = sessions.length >= _sessionsPerPage;
-      });
-    } catch (e) {
-      setState(() {
-        _sessionsError = e.toString();
-        _isLoadingSessions = false;
-      });
-    }
-  }
-
-  Future<void> _loadUserJoinedSessions() async {
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
-
-      final memberships = await Supabase.instance.client
-          .from('session_members')
-          .select('session_id')
-          .eq('user_id', user.id)
-          .eq('status', 'joined');
-
-      setState(() {
-        _userJoinedSessionIds = memberships
-            .map((m) => m['session_id'] as String)
-            .toSet();
-      });
-    } catch (e) {
-      debugPrint('Error loading user joined sessions: $e');
     }
   }
 
@@ -166,16 +364,69 @@ class _HomeTabState extends State<HomeTab> {
           .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
           .toList();
 
+      if (mounted) {
+        setState(() {
+          _allSessions.addAll(newSessions);
+          _applyFilters();
+          _currentPage = nextPage;
+          _hasMoreSessions = newSessions.length >= _sessionsPerPage;
+          _isLoadingMore = false;
+        });
+
+        // Subscribe to the newly loaded sessions
+        _subscribeToVisibleSessions();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  /// Initial load of sessions (one-time fetch)
+  Future<void> _loadSessions() async {
+    setState(() {
+      _isLoadingSessions = true;
+      _sessionsError = null;
+    });
+
+    try {
+      // Fetch upcoming sessions from all gyms
+      final response = await Supabase.instance.client
+          .from('workout_sessions')
+          .select('''
+            *,
+            host:host_user_id(id, name),
+            gym:gym_id(name)
+          ''')
+          .eq('status', 'upcoming')
+          .gte('start_time', DateTime.now().toIso8601String())
+          .order('start_time', ascending: true)
+          .limit(_sessionsPerPage);
+
+      final sessions = (response as List)
+          .map((json) => WorkoutSession.fromJson(json))
+          .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
+          .toList();
+
       setState(() {
-        _allSessions.addAll(newSessions);
-        _applyFilters();
-        _currentPage = nextPage;
-        _hasMoreSessions = newSessions.length >= _sessionsPerPage;
-        _isLoadingMore = false;
+        _allSessions = sessions;
+        _filteredSessions = sessions;
+        _isLoadingSessions = false;
+        _isInitialLoading = false; // Mark initial load as complete
+        _hasMoreSessions = sessions.length >= _sessionsPerPage;
       });
+
+      // Subscribe only to visible sessions after loading
+      _subscribeToVisibleSessions();
     } catch (e) {
       setState(() {
-        _isLoadingMore = false;
+        _sessionsError = e.toString();
+        _isLoadingSessions = false;
+        _isInitialLoading =
+            false; // Mark initial load as complete even on error
       });
     }
   }
@@ -415,143 +666,190 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Future<void> _showPreferredTimePicker() async {
+    String tempSelectedTime = _currentUser.preferredTime ?? 'morning';
+
     await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceBorder,
-                borderRadius: BorderRadius.circular(2),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return Container(
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
             ),
-            const SizedBox(height: 24),
-            Text(
-              'Select Preferred Time',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'When do you prefer to work out?',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 24),
-            ...app_user.PreferredTime.values.map((time) {
-              final isSelected = _currentUser.preferredTime == time['value'];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: GestureDetector(
-                  onTap: () async {
-                    try {
-                      await _userService.updatePreferredTime(
-                        time['value'] as String,
-                      );
-                      if (mounted) {
-                        Navigator.pop(context);
-                        // Refresh user data to update UI
-                        await _refreshUser();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Preferred time updated!'),
-                            backgroundColor: AppTheme.success,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceBorder,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Select Preferred Time',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'When do you prefer to work out?',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 24),
+                ...app_user.PreferredTime.values.map((time) {
+                  final isSelected = tempSelectedTime == time['value'];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: GestureDetector(
+                      onTap: () async {
+                        final newTime = time['value'] as String;
+                        if (newTime == tempSelectedTime) return;
+
+                        // Update local state immediately for visual feedback
+                        setModalState(() {
+                          tempSelectedTime = newTime;
+                        });
+
+                        try {
+                          await _userService.updatePreferredTime(newTime);
+                          if (mounted) {
+                            // Refresh user data to update main UI
+                            await _refreshUser();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Preferred time updated!'),
+                                backgroundColor: AppTheme.success,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          // Revert on error
+                          setModalState(() {
+                            tempSelectedTime =
+                                _currentUser.preferredTime ?? 'morning';
+                          });
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Failed to update: $e'),
+                                backgroundColor: AppTheme.error,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          gradient: isSelected
+                              ? AppTheme.primaryGradient
+                              : null,
+                          color: isSelected ? null : AppTheme.surfaceLight,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.transparent
+                                : AppTheme.surfaceBorder,
+                            width: isSelected ? 0 : 1,
                           ),
-                        );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Failed to update: $e'),
-                            backgroundColor: AppTheme.error,
-                          ),
-                        );
-                      }
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: isSelected ? AppTheme.primaryGradient : null,
-                      color: isSelected ? null : AppTheme.surfaceLight,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isSelected
-                            ? Colors.transparent
-                            : AppTheme.surfaceBorder,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? Colors.white.withValues(alpha: 0.2)
+                                    : AppTheme.surface,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                time['icon'] as IconData,
+                                color: isSelected
+                                    ? Colors.white
+                                    : AppTheme.textSecondary,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    time['label'] as String,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? Colors.white
+                                          : AppTheme.textPrimary,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    time['time'] as String,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? Colors.white.withValues(alpha: 0.8)
+                                          : AppTheme.textMuted,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            AnimatedOpacity(
+                              opacity: isSelected ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: const Icon(
+                                Icons.check_circle,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? Colors.white.withValues(alpha: 0.2)
-                                : AppTheme.surface,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(
-                            time['icon'] as IconData,
-                            color: isSelected
-                                ? Colors.white
-                                : AppTheme.textSecondary,
-                            size: 24,
-                          ),
+                  );
+                }),
+                const SizedBox(height: 24),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.primaryGradient,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Center(
+                      child: Text(
+                        'Done',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                time['label'] as String,
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? Colors.white
-                                      : AppTheme.textPrimary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                time['time'] as String,
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? Colors.white.withValues(alpha: 0.8)
-                                      : AppTheme.textMuted,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (isSelected)
-                          const Icon(
-                            Icons.check_circle,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              );
-            }).toList(),
-            const SizedBox(height: 16),
-          ],
-        ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -679,36 +977,6 @@ class _HomeTabState extends State<HomeTab> {
           ),
         ),
         const Spacer(),
-        // Compact Reputation badge
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            gradient: AppTheme.primaryGradient,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryOrange.withValues(alpha: 0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.star, color: Colors.white, size: 14),
-              const SizedBox(width: 4),
-              Text(
-                '${_currentUser.reputationScore}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
         // Notification bell
         GlassCard(
           padding: const EdgeInsets.all(12),
@@ -817,12 +1085,15 @@ class _HomeTabState extends State<HomeTab> {
             Expanded(
               child: _buildCompactStatItem(
                 icon: Icons.fitness_center,
-                label: 'Lvl',
+                label: 'Level',
                 value: _currentUser.experienceLevel != null
                     ? _currentUser.experienceLevel!
-                          .substring(0, 1)
-                          .toUpperCase()
-                    : 'B',
+                          .split('_')
+                          .map(
+                            (word) => word[0].toUpperCase() + word.substring(1),
+                          )
+                          .join(' ')
+                    : 'Beginner',
                 iconColor: AppTheme.success,
               ),
             ),
@@ -900,7 +1171,7 @@ class _HomeTabState extends State<HomeTab> {
     required Color iconColor,
   }) {
     return GlassCard(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       borderRadius: 16,
       child: Row(
         children: [
@@ -912,23 +1183,32 @@ class _HomeTabState extends State<HomeTab> {
             ),
             child: Icon(icon, color: iconColor, size: 16),
           ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              Text(
-                label,
-                style: const TextStyle(color: AppTheme.textMuted, fontSize: 10),
-              ),
-            ],
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: AppTheme.textMuted,
+                    fontSize: 10,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
         ],
       ),

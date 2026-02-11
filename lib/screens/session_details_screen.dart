@@ -1,4 +1,5 @@
 // lib/screens/session_details_screen.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -25,13 +26,80 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   String? _currentUserId;
   bool _isUserJoined = false;
 
+  // Realtime subscription for this specific session
+  StreamSubscription<WorkoutSession?>? _sessionSubscription;
+  StreamSubscription<List<dynamic>>? _membersSubscription;
+
   @override
   void initState() {
     super.initState();
     _sessionService = SessionService(Supabase.instance.client);
     _session = widget.session;
     _getCurrentUser();
-    _loadSessionDetails();
+    _subscribeToSession();
+    _subscribeToMembers();
+  }
+
+  @override
+  void dispose() {
+    _sessionSubscription?.cancel();
+    _membersSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// Subscribe to this specific session's changes
+  void _subscribeToSession() {
+    _sessionSubscription = _sessionService
+        .subscribeToSession(_session!.id)
+        .listen(
+          (updatedSession) {
+            if (updatedSession != null && mounted) {
+              setState(() {
+                _session = updatedSession;
+                _checkIfUserJoined();
+              });
+            } else if (updatedSession == null && mounted) {
+              // Session was deleted/cancelled - show message and pop
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('This session has been cancelled'),
+                  backgroundColor: AppTheme.error,
+                ),
+              );
+              Navigator.pop(context);
+            }
+          },
+          onError: (error) {
+            debugPrint('Error in session subscription: $error');
+          },
+        );
+  }
+
+  /// Subscribe to members changes for this session
+  void _subscribeToMembers() {
+    _membersSubscription = _sessionService
+        .subscribeToSessionMembers(_session!.id)
+        .listen(
+          (members) async {
+            // Fetch full session details with updated members
+            try {
+              final updatedSession = await _sessionService.getSession(
+                _session!.id,
+              );
+              if (updatedSession != null && mounted) {
+                setState(() {
+                  _session = updatedSession;
+                  _checkIfUserJoined();
+                });
+              }
+            } catch (e) {
+              debugPrint('Error fetching updated session: $e');
+            }
+          },
+          onError: (error) {
+            debugPrint('Error in members subscription: $error');
+          },
+        );
   }
 
   Future<void> _getCurrentUser() async {
@@ -173,6 +241,70 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     }
   }
 
+  Future<void> _cancelSession() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Cancel Session?',
+          style: TextStyle(color: AppTheme.textPrimary),
+        ),
+        content: const Text(
+          'This will cancel the session for all members. Are you sure?',
+          style: TextStyle(color: AppTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep Session'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
+            child: const Text('Cancel Session'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isJoining = true;
+    });
+
+    try {
+      await _sessionService.cancelSession(_session!.id);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session cancelled successfully'),
+            backgroundColor: AppTheme.success,
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isJoining = false;
+        });
+      }
+    }
+  }
+
   void _showJoinConfirmation() {
     showModalBottomSheet(
       context: context,
@@ -276,19 +408,33 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     );
   }
 
+  bool get _isHost {
+    if (_session == null || _currentUserId == null) return false;
+    return _session!.hostUserId == _currentUserId;
+  }
+
   bool get _canJoin {
     if (_session == null) return false;
     if (_isUserJoined) return false;
     if (_session!.isFull) return false;
     if (!_session!.isUpcoming) return false;
+    if (_session!.isCancelled) return false;
     return true;
   }
 
   bool get _canLeave {
     if (_session == null) return false;
     if (!_isUserJoined) return false;
-    if (_session!.hostUserId == _currentUserId) return false;
+    if (_isHost) return false;
     if (!_session!.isUpcoming) return false;
+    return true;
+  }
+
+  bool get _canCancel {
+    if (_session == null) return false;
+    if (!_isHost) return false;
+    if (!_session!.isUpcoming) return false;
+    if (_session!.isCancelled) return false;
     return true;
   }
 
@@ -455,6 +601,15 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           const SizedBox(height: 20),
           const Divider(color: AppTheme.surfaceBorder, height: 1),
           const SizedBox(height: 20),
+
+          // Gym Info
+          if (_session?.gym != null) ...[
+            _buildInfoRow(
+              Icons.location_on_outlined,
+              _session!.gym!['name'] ?? 'Unknown Gym',
+            ),
+            const SizedBox(height: 12),
+          ],
 
           // Date & Time
           _buildInfoRow(
@@ -696,6 +851,73 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   }
 
   Widget? _buildBottomBar() {
+    // Host can cancel session
+    if (_canCancel) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          border: Border(top: BorderSide(color: AppTheme.surfaceBorder)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_isUserJoined)
+                GlassCard(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                    horizontal: 24,
+                  ),
+                  borderRadius: 16,
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        color: AppTheme.success,
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'You\'ve Joined',
+                        style: TextStyle(
+                          color: AppTheme.success,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_isUserJoined) const SizedBox(height: 12),
+              GlassCard(
+                onTap: _cancelSession,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                borderRadius: 16,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cancel, color: AppTheme.error, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Cancel Session',
+                      style: TextStyle(
+                        color: AppTheme.error,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Members can leave session
     if (_isUserJoined && _canLeave) {
       return Container(
         padding: const EdgeInsets.all(24),
@@ -704,19 +926,79 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           border: Border(top: BorderSide(color: AppTheme.surfaceBorder)),
         ),
         child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GlassCard(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 24,
+                ),
+                borderRadius: 16,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.check_circle, color: AppTheme.success, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'You\'ve Joined',
+                      style: TextStyle(
+                        color: AppTheme.success,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              GlassCard(
+                onTap: _leaveSession,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                borderRadius: 16,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.exit_to_app, color: AppTheme.error, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'Leave Session',
+                      style: TextStyle(
+                        color: AppTheme.error,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Already joined but can't leave (shouldn't happen, but handle it)
+    if (_isUserJoined) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          border: Border(top: BorderSide(color: AppTheme.surfaceBorder)),
+        ),
+        child: SafeArea(
           child: GlassCard(
-            onTap: _leaveSession,
             padding: const EdgeInsets.symmetric(vertical: 16),
             borderRadius: 16,
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.exit_to_app, color: AppTheme.error, size: 20),
+                Icon(Icons.check_circle, color: AppTheme.success, size: 20),
                 SizedBox(width: 8),
                 Text(
-                  'Leave Session',
+                  'Already Joined',
                   style: TextStyle(
-                    color: AppTheme.error,
+                    color: AppTheme.success,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
                   ),
@@ -728,6 +1010,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       );
     }
 
+    // Can join session
     if (_canJoin) {
       return Container(
         padding: const EdgeInsets.all(24),
@@ -742,6 +1025,38 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
             isLoading: _isJoining,
             onPressed: _showJoinConfirmation,
             padding: const EdgeInsets.symmetric(vertical: 18),
+          ),
+        ),
+      );
+    }
+
+    // Session is full
+    if (_session?.isFull == true) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          border: Border(top: BorderSide(color: AppTheme.surfaceBorder)),
+        ),
+        child: SafeArea(
+          child: GlassCard(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            borderRadius: 16,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.lock, color: AppTheme.textMuted, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Session Full',
+                  style: TextStyle(
+                    color: AppTheme.textMuted,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );

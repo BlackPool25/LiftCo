@@ -33,7 +33,7 @@ class SessionService {
           .eq('id', user.id)
           .single();
 
-      // Create session
+      // Create session - current_count will be 0, trigger will increment when host joins
       final response = await _supabase
           .from('workout_sessions')
           .insert({
@@ -45,7 +45,7 @@ class SessionService {
             'start_time': startTime.toIso8601String(),
             'duration_minutes': durationMinutes,
             'max_capacity': maxCapacity,
-            'current_count': 1,
+            'current_count': 0,
             'status': 'upcoming',
             'intensity_level': intensityLevel,
             'women_only': womenOnly,
@@ -53,14 +53,24 @@ class SessionService {
           .select()
           .single();
 
-      // Add host as first member
+      // Add host as first member - trigger will increment current_count
       await _supabase.from('session_members').insert({
         'session_id': response['id'],
         'user_id': userProfile['id'],
         'status': 'joined',
       });
 
-      return WorkoutSession.fromJson(response);
+      // Re-fetch to get the updated count from trigger
+      final updatedResponse = await _supabase
+          .from('workout_sessions')
+          .select('''
+            *,
+            host:host_user_id(id, name)
+          ''')
+          .eq('id', response['id'] as String)
+          .single();
+
+      return WorkoutSession.fromJson(updatedResponse);
     } on PostgrestException catch (e) {
       debugPrint('Error creating session: ${e.message}');
       throw Exception('Failed to create session: ${e.message}');
@@ -152,18 +162,12 @@ class SessionService {
         }
       }
 
-      // Join session
+      // Join session - trigger will automatically increment current_count
       await _supabase.from('session_members').insert({
         'session_id': sessionId,
         'user_id': user.id,
         'status': 'joined',
       });
-
-      // Update session count
-      await _supabase
-          .from('workout_sessions')
-          .update({'current_count': session['current_count'] + 1})
-          .eq('id', sessionId);
     } on PostgrestException catch (e) {
       debugPrint('Error joining session: ${e.message}');
       throw Exception('Failed to join session: ${e.message}');
@@ -194,18 +198,12 @@ class SessionService {
         throw Exception('Host cannot leave the session. Cancel it instead.');
       }
 
-      // Update membership status
+      // Update membership status - trigger will automatically decrement current_count
       await _supabase
           .from('session_members')
           .update({'status': 'cancelled'})
           .eq('session_id', sessionId)
           .eq('user_id', user.id);
-
-      // Decrement session count
-      await _supabase
-          .from('workout_sessions')
-          .update({'current_count': (session['current_count'] as int) - 1})
-          .eq('id', sessionId);
     } on PostgrestException catch (e) {
       debugPrint('Error leaving session: ${e.message}');
       throw Exception('Failed to leave session: ${e.message}');
@@ -216,14 +214,15 @@ class SessionService {
     }
   }
 
-  /// Get session details
+  /// Get session details with members
   Future<WorkoutSession?> getSession(String sessionId) async {
     try {
       final response = await _supabase
           .from('workout_sessions')
           .select('''
             *,
-            host:host_user_id(id, name)
+            host:host_user_id(id, name),
+            members:session_members(id, user_id, status, joined_at, user:user_id(id, name))
           ''')
           .eq('id', sessionId)
           .maybeSingle();
@@ -282,5 +281,158 @@ class SessionService {
       debugPrint('Unexpected error fetching user sessions: $e');
       throw Exception('Failed to fetch sessions');
     }
+  }
+
+  /// Cancel a session (host only)
+  Future<void> cancelSession(String sessionId) async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Get session details
+      final session = await _supabase
+          .from('workout_sessions')
+          .select('host_user_id, status')
+          .eq('id', sessionId)
+          .single();
+
+      // Check if user is the host
+      if (session['host_user_id'] != user.id) {
+        throw Exception('Only the host can cancel the session');
+      }
+
+      // Check if session is already cancelled or finished
+      if (session['status'] == 'cancelled') {
+        throw Exception('Session is already cancelled');
+      }
+
+      if (session['status'] == 'finished') {
+        throw Exception('Cannot cancel a finished session');
+      }
+
+      // Cancel all memberships
+      await _supabase
+          .from('session_members')
+          .update({'status': 'cancelled'})
+          .eq('session_id', sessionId)
+          .eq('status', 'joined');
+
+      // Update session status
+      await _supabase
+          .from('workout_sessions')
+          .update({'status': 'cancelled'})
+          .eq('id', sessionId);
+    } on PostgrestException catch (e) {
+      debugPrint('Error cancelling session: ${e.message}');
+      throw Exception('Failed to cancel session: ${e.message}');
+    } catch (e) {
+      debugPrint('Unexpected error cancelling session: $e');
+      if (e is Exception) rethrow;
+      throw Exception('Failed to cancel session');
+    }
+  }
+
+  /// Check if user is a member of a session
+  Future<bool> isUserJoined(String sessionId) async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return false;
+
+      final membership = await _supabase
+          .from('session_members')
+          .select()
+          .eq('session_id', sessionId)
+          .eq('user_id', user.id)
+          .eq('status', 'joined')
+          .maybeSingle();
+
+      return membership != null;
+    } catch (e) {
+      debugPrint('Error checking membership: $e');
+      return false;
+    }
+  }
+
+  /// Subscribe to all session changes (create, update, delete)
+  /// Returns a stream of session changes
+  Stream<List<WorkoutSession>> subscribeToSessions({int? gymId}) {
+    return _supabase.from('workout_sessions').stream(primaryKey: ['id']).map((
+      data,
+    ) {
+      var sessions = data
+          .map((json) => WorkoutSession.fromJson(json))
+          .where((s) => s.status == 'upcoming')
+          .where((s) => s.startTime.isAfter(DateTime.now()))
+          .toList();
+
+      if (gymId != null) {
+        sessions = sessions.where((s) => s.gymId == gymId).toList();
+      }
+
+      return sessions;
+    });
+  }
+
+  /// Subscribe to a specific session's changes
+  Stream<WorkoutSession?> subscribeToSession(String sessionId) {
+    return _supabase.from('workout_sessions').stream(primaryKey: ['id']).map((
+      data,
+    ) {
+      final session = data.where((s) => s['id'] == sessionId).firstOrNull;
+      if (session == null) return null;
+      return WorkoutSession.fromJson(session);
+    });
+  }
+
+  /// Subscribe to session members changes
+  Stream<List<dynamic>> subscribeToSessionMembers(String sessionId) {
+    return _supabase
+        .from('session_members')
+        .stream(primaryKey: ['id'])
+        .map(
+          (data) => data.where((m) => m['session_id'] == sessionId).toList(),
+        );
+  }
+
+  /// Subscribe to user's joined sessions
+  Stream<List<WorkoutSession>> subscribeToUserSessions() {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      return Stream.value([]);
+    }
+
+    // Subscribe to session_members table for this user
+    return _supabase
+        .from('session_members')
+        .stream(primaryKey: ['id'])
+        .map(
+          (data) => data
+              .where((m) => m['user_id'] == user.id && m['status'] == 'joined')
+              .toList(),
+        )
+        .asyncMap((memberships) async {
+          if (memberships.isEmpty) return <WorkoutSession>[];
+
+          final sessionIds = memberships
+              .map((m) => m['session_id'] as String)
+              .toList();
+
+          // Fetch full session details
+          final response = await _supabase
+              .from('workout_sessions')
+              .select('''
+                *,
+                host:host_user_id(id, name)
+              ''')
+              .inFilter('id', sessionIds)
+              .order('start_time', ascending: true);
+
+          return response
+              .map((json) => WorkoutSession.fromJson(json))
+              .where((s) => s.status != 'cancelled')
+              .toList();
+        });
   }
 }
