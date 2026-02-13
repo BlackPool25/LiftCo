@@ -21,6 +21,7 @@ class SessionDetailsScreen extends StatefulWidget {
 class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   late SessionService _sessionService;
   WorkoutSession? _session;
+  bool _isLoading = false;
   bool _isJoining = false;
   String? _currentUserId;
   bool _isUserJoined = false;
@@ -54,9 +55,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           (updatedSession) {
             if (updatedSession != null && mounted) {
               setState(() {
-                _session = updatedSession.gym == null && _session?.gym != null
-                    ? updatedSession.copyWith(gym: _session!.gym)
-                    : updatedSession;
+                _session = updatedSession;
                 _checkIfUserJoined();
               });
             } else if (updatedSession == null && mounted) {
@@ -89,9 +88,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
               );
               if (updatedSession != null && mounted) {
                 setState(() {
-                  _session = updatedSession.gym == null && _session?.gym != null
-                      ? updatedSession.copyWith(gym: _session!.gym)
-                      : updatedSession;
+                  _session = updatedSession;
                   _checkIfUserJoined();
                 });
               }
@@ -120,6 +117,28 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       _isUserJoined = _session!.members!.any(
         (m) => m.userId == _currentUserId && m.status == 'joined',
       );
+    }
+  }
+
+  Future<void> _loadSessionDetails() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final session = await _sessionService.getSession(_session!.id);
+      if (session != null) {
+        setState(() {
+          _session = session;
+          _checkIfUserJoined();
+        });
+      }
+    } catch (e) {
+      // Ignore error, use initial session data
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -426,29 +445,35 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       body: Container(
         decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
         child: SafeArea(
-          child: CustomScrollView(
-            slivers: [
-              // App bar
-              SliverToBoxAdapter(child: _buildAppBar()),
-
-              // Session info card
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                  child: _buildSessionInfoCard(),
-                ),
-              ),
-
-              // Members section
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    'Members (${_session?.currentCount ?? 0}/${_session?.maxCapacity ?? 0})',
-                    style: Theme.of(context).textTheme.titleLarge,
+          child: _isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: AppTheme.primaryPurple,
                   ),
-                ),
-              ),
+                )
+              : CustomScrollView(
+                  slivers: [
+                    // App bar
+                    SliverToBoxAdapter(child: _buildAppBar()),
+
+                    // Session info card
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                        child: _buildSessionInfoCard(),
+                      ),
+                    ),
+
+                    // Members section
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          'Members (${_session?.currentCount ?? 0}/${_session?.maxCapacity ?? 0})',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                    ),
 
                     const SliverToBoxAdapter(child: SizedBox(height: 16)),
 
@@ -570,35 +595,6 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
                 fontSize: 14,
                 height: 1.5,
               ),
-            ),
-          ],
-
-          if (_session != null) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _buildTagChip(
-                  _session!.isWomenOnly ? 'Women Only' : 'All Members',
-                  _session!.isWomenOnly
-                      ? LinearGradient(
-                          colors: [Colors.pink[400]!, Colors.purple[500]!],
-                        )
-                      : AppTheme.primaryGradient,
-                ),
-                if (_isUserJoined)
-                  _buildTagChip('Joined', null, color: AppTheme.success)
-                else if (_session!.isFull)
-                  _buildTagChip('Full', null, color: AppTheme.error)
-                else if (_session!.isUpcoming)
-                  _buildTagChip('Open', null, color: AppTheme.accentCyan),
-                _buildTagChip(
-                  _session!.status.replaceAll('_', ' '),
-                  null,
-                  color: _getStatusColor(),
-                ),
-              ],
             ),
           ],
 
@@ -735,33 +731,6 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildTagChip(
-    String label,
-    LinearGradient? gradient, {
-    Color? color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        gradient: gradient,
-        color: gradient == null
-            ? (color ?? AppTheme.surfaceLight).withValues(alpha: 0.2)
-            : null,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: gradient == null
-              ? (color ?? AppTheme.textSecondary)
-              : Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
     );
   }
 
