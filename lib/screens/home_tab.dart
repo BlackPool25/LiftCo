@@ -66,8 +66,8 @@ class _HomeTabState extends State<HomeTab> {
   // Realtime subscriptions
   final Map<String, StreamSubscription<WorkoutSession?>> _sessionSubscriptions =
       {};
-  StreamSubscription<List<Map<String, dynamic>>>? _newSessionsSubscription;
-  StreamSubscription<List<dynamic>>? _userMembershipsSubscription;
+  StreamSubscription<List<WorkoutSession>>? _newSessionsSubscription;
+  StreamSubscription<List<WorkoutSession>>? _userMembershipsSubscription;
 
   // Flag to prevent subscription from adding duplicates during initial load
   bool _isInitialLoading = true;
@@ -153,9 +153,8 @@ class _HomeTabState extends State<HomeTab> {
   /// Subscribe to recent upcoming sessions (top 15 by start time)
   /// This ensures we catch new sessions as they're created
   void _subscribeToRecentSessions() {
-    _newSessionsSubscription = Supabase.instance.client
-        .from('workout_sessions')
-        .stream(primaryKey: ['id'])
+    _newSessionsSubscription = _sessionService
+        .subscribeToSessions(gymId: _filterGymId)
         .listen(
           (sessions) {
             if (!mounted) return;
@@ -163,26 +162,15 @@ class _HomeTabState extends State<HomeTab> {
             // Skip processing during initial load to avoid duplicates
             if (_isInitialLoading) return;
 
-            // Filter to only upcoming sessions that haven't started
-            var upcomingSessions = sessions
-                .where(
-                  (s) =>
-                      s['status'] == 'upcoming' &&
-                      DateTime.parse(s['start_time']).isAfter(DateTime.now()),
-                )
-                .toList();
+            final upcomingSessions = sessions
+                .where((s) => s.status == 'upcoming')
+                .where((s) => s.startTime.isAfter(DateTime.now()))
+                .toList()
+              ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
-            // Sort by start_time to get the most recent/upcoming first
-            upcomingSessions.sort(
-              (a, b) => DateTime.parse(
-                a['start_time'],
-              ).compareTo(DateTime.parse(b['start_time'])),
-            );
-
-            // Take top 15 sessions
             final topSessions = upcomingSessions.take(15).toList();
             final topSessionIds = topSessions
-                .map((s) => s['id'] as String)
+                .map((s) => s.id)
                 .toSet();
 
             // Check if we need to refresh the list
@@ -194,36 +182,26 @@ class _HomeTabState extends State<HomeTab> {
             // Sessions that should be removed (no longer in top 15 or cancelled)
             final removedSessionIds = currentIds.difference(topSessionIds);
 
-            if (newSessionIds.isNotEmpty) {
-              // Fetch full details for new sessions (including gym data)
-              _fetchAndMergeSessions(newSessionIds.toList());
-            }
-
-            // Refresh existing sessions to get updated data (including gym info)
-            final existingSessionIds = topSessionIds
-                .intersection(currentIds)
-                .toList();
-            if (existingSessionIds.isNotEmpty) {
-              _refreshExistingSessions(existingSessionIds);
+            if (newSessionIds.isNotEmpty || removedSessionIds.isNotEmpty) {
+              setState(() {
+                _allSessions = topSessions;
+                _applyFilters();
+              });
+            } else {
+              setState(() {
+                _allSessions = topSessions;
+                _applyFilters();
+              });
             }
 
             if (removedSessionIds.isNotEmpty) {
               setState(() {
                 for (final id in removedSessionIds) {
-                  _allSessions.removeWhere((s) => s.id == id);
                   _sessionSubscriptions[id]?.cancel();
                   _sessionSubscriptions.remove(id);
                 }
-                _applyFilters();
               });
             }
-
-            // Note: Individual session updates are handled by _subscribeToVisibleSessions()
-            // which subscribes to each visible session for detailed updates
-
-            // Sort and filter
-            _allSessions.sort((a, b) => a.startTime.compareTo(b.startTime));
-            _applyFilters();
 
             // Subscribe to visible sessions
             _subscribeToVisibleSessions();
@@ -234,95 +212,16 @@ class _HomeTabState extends State<HomeTab> {
         );
   }
 
-  /// Refresh existing sessions with full data including gym info
-  Future<void> _refreshExistingSessions(List<String> sessionIds) async {
-    try {
-      final response = await Supabase.instance.client
-          .from('workout_sessions')
-          .select('''
-            *,
-            host:host_user_id(id, name),
-            gym:gym_id(name)
-          ''')
-          .inFilter('id', sessionIds);
-
-      final updatedSessions = (response as List)
-          .map((json) => WorkoutSession.fromJson(json))
-          .toList();
-
-      if (mounted && updatedSessions.isNotEmpty) {
-        setState(() {
-          for (final updatedSession in updatedSessions) {
-            final index = _allSessions.indexWhere(
-              (s) => s.id == updatedSession.id,
-            );
-            if (index != -1) {
-              _allSessions[index] = updatedSession;
-            }
-          }
-        });
-      }
-    } catch (e) {
-      debugPrint('Error refreshing existing sessions: $e');
-    }
-  }
-
-  /// Fetch and merge new sessions into the list (avoiding duplicates)
-  Future<void> _fetchAndMergeSessions(List<String> sessionIds) async {
-    try {
-      // Filter out IDs that are already in _allSessions
-      final existingIds = _allSessions.map((s) => s.id).toSet();
-      final newIds = sessionIds
-          .where((id) => !existingIds.contains(id))
-          .toList();
-
-      if (newIds.isEmpty) return;
-
-      final response = await Supabase.instance.client
-          .from('workout_sessions')
-          .select('''
-            *,
-            host:host_user_id(id, name),
-            gym:gym_id(name)
-          ''')
-          .inFilter('id', newIds);
-
-      final sessions = (response as List)
-          .map((json) => WorkoutSession.fromJson(json))
-          .toList();
-
-      if (mounted && sessions.isNotEmpty) {
-        setState(() {
-          _allSessions.addAll(sessions);
-          // Sort by start time
-          _allSessions.sort((a, b) => a.startTime.compareTo(b.startTime));
-          _applyFilters();
-        });
-      }
-    } catch (e) {
-      debugPrint('Error fetching new sessions: $e');
-    }
-  }
-
   /// Subscribe to user's membership changes (only their own)
   void _subscribeToUserMemberships() {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-
-    _userMembershipsSubscription = Supabase.instance.client
-        .from('session_members')
-        .stream(primaryKey: ['id'])
-        .map(
-          (data) => data
-              .where((m) => m['user_id'] == user.id && m['status'] == 'joined')
-              .toList(),
-        )
+    _userMembershipsSubscription = _sessionService
+        .subscribeToUserSessions()
         .listen(
-          (memberships) {
+          (sessions) {
             if (mounted) {
               setState(() {
-                _userJoinedSessionIds = memberships
-                    .map((m) => m['session_id'] as String)
+                _userJoinedSessionIds = sessions
+                    .map((s) => s.id)
                     .toSet();
               });
             }
@@ -369,41 +268,30 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Future<List<WorkoutSession>> _fetchSessionsPage(int page) async {
-    var query = Supabase.instance.client
-        .from('workout_sessions')
-        .select('''
-          *,
-          host:host_user_id(id, name),
-          gym:gym_id(name)
-        ''')
-        .eq('status', 'upcoming')
-        .gte('start_time', DateTime.now().toIso8601String());
-
-    if (_filterGymId != null) {
-      query = query.eq('gym_id', _filterGymId!);
-    }
+    var sessions = await _sessionService.listSessions(
+      gymId: _filterGymId,
+      status: 'upcoming',
+      limit: _sessionsPerPage,
+      offset: page * _sessionsPerPage,
+    );
 
     if (_filterIntensity != null) {
-      query = query.eq('intensity_level', _filterIntensity!);
+      sessions = sessions
+          .where((s) => s.intensityLevel == _filterIntensity)
+          .toList();
     }
 
     if (_filterDuration != null) {
-      query = query.eq('duration_minutes', _filterDuration!);
+      sessions = sessions
+          .where((s) => s.durationMinutes == _filterDuration)
+          .toList();
     }
 
     if (_femaleOnlyMode) {
-      query = query.eq('women_only', true);
+      sessions = sessions.where((s) => s.womenOnly).toList();
     }
 
-    final response = await query
-        .order('start_time', ascending: true)
-        .range(
-      page * _sessionsPerPage,
-      (page + 1) * _sessionsPerPage - 1,
-    );
-
-    return (response as List)
-        .map((json) => WorkoutSession.fromJson(json))
+    return sessions
         .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
         .toList();
   }
@@ -1484,8 +1372,8 @@ class _HomeTabState extends State<HomeTab> {
                   color:
                       (_filterIntensity != null ||
                           _filterTimeRange != null ||
-                        _filterDuration != null ||
-                        _filterGymId != null)
+                          _filterDuration != null ||
+                          _filterGymId != null)
                       ? AppTheme.primaryPurple.withValues(alpha: 0.2)
                       : AppTheme.surfaceLight,
                   borderRadius: BorderRadius.circular(20),
@@ -1493,8 +1381,8 @@ class _HomeTabState extends State<HomeTab> {
                     color:
                         (_filterIntensity != null ||
                             _filterTimeRange != null ||
-                        _filterDuration != null ||
-                        _filterGymId != null)
+                            _filterDuration != null ||
+                            _filterGymId != null)
                         ? AppTheme.primaryPurple
                         : AppTheme.surfaceBorder,
                   ),
@@ -1507,8 +1395,8 @@ class _HomeTabState extends State<HomeTab> {
                       color:
                           (_filterIntensity != null ||
                               _filterTimeRange != null ||
-                            _filterDuration != null ||
-                            _filterGymId != null)
+                              _filterDuration != null ||
+                              _filterGymId != null)
                           ? AppTheme.primaryPurple
                           : AppTheme.textSecondary,
                       size: 16,
@@ -1563,6 +1451,11 @@ class _HomeTabState extends State<HomeTab> {
                   onPressed: _loadSessions,
                   child: const Text('Retry'),
                 ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: widget.onNavigateToGyms,
+                  child: const Text('Create Session'),
+                ),
               ],
             ),
           )
@@ -1602,6 +1495,11 @@ class _HomeTabState extends State<HomeTab> {
                     },
                     child: const Text('Clear Filters'),
                   ),
+                if (_allSessions.isEmpty)
+                  TextButton(
+                    onPressed: widget.onNavigateToGyms,
+                    child: const Text('Create Session'),
+                  ),
               ],
             ),
           )
@@ -1638,6 +1536,9 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Widget _buildSessionCard(WorkoutSession session, int index, bool isJoined) {
+    final hostName = session.host?['name'] as String? ?? 'Unknown';
+    final hostPhotoUrl = session.host?['profile_photo_url'] as String?;
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -1653,17 +1554,31 @@ class _HomeTabState extends State<HomeTab> {
         margin: const EdgeInsets.only(bottom: 12),
         child: Row(
           children: [
+            // Host photo or session icon
             Container(
-              padding: const EdgeInsets.all(10),
+              width: 44,
+              height: 44,
               decoration: BoxDecoration(
-                gradient: AppTheme.primaryGradient,
+                gradient: hostPhotoUrl == null
+                    ? AppTheme.primaryGradient
+                    : null,
                 borderRadius: BorderRadius.circular(10),
+                image: hostPhotoUrl != null
+                    ? DecorationImage(
+                        image: NetworkImage(hostPhotoUrl),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
               ),
-              child: const Icon(
-                Icons.fitness_center,
-                color: Colors.white,
-                size: 18,
-              ),
+              child: hostPhotoUrl == null
+                  ? const Center(
+                      child: Icon(
+                        Icons.fitness_center,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    )
+                  : null,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1679,6 +1594,22 @@ class _HomeTabState extends State<HomeTab> {
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  // Host name row
+                  Row(
+                    children: [
+                      Icon(Icons.person, color: AppTheme.textMuted, size: 12),
+                      const SizedBox(width: 4),
+                      Text(
+                        hostName,
+                        style: TextStyle(
+                          color: AppTheme.textSecondary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   // Status tags row

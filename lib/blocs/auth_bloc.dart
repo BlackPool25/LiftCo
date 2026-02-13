@@ -185,17 +185,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     });
   }
 
-  /// Register device for push notifications
-  Future<void> _registerDevice() async {
-    if (_deviceService != null && _authService.currentAuthUser != null) {
-      try {
-        await _deviceService.registerDevice(_authService.currentAuthUser!.id);
-      } catch (e) {
-        debugPrint('Failed to register device: $e');
-      }
-    }
-  }
-
   Future<void> _onAppStarted(AppStarted event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
 
@@ -204,7 +193,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         final user = await _authService.getUserProfile();
         if (user != null) {
           if (user.isProfileComplete) {
-            await _registerDevice(); // Register device on successful auth
             emit(Authenticated(user));
           } else {
             emit(
@@ -366,9 +354,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         'Profile completed successfully. isProfileComplete: ${user.isProfileComplete}',
       );
 
-      // Register device for push notifications after profile completion
-      await _registerDevice();
-
       emit(Authenticated(user));
     } catch (e) {
       debugPrint('Profile completion failed: $e');
@@ -380,7 +365,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> _deactivateDevice() async {
     if (_deviceService != null && _authService.currentAuthUser != null) {
       try {
-        await _deviceService.deactivateDevice(_authService.currentAuthUser!.id);
+        await _deviceService.deactivateDevice();
       } catch (e) {
         debugPrint('Failed to deactivate device: $e');
       }
@@ -421,8 +406,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       if (exists) {
         final user = await _authService.getUserProfile();
         if (user != null && user.isProfileComplete) {
-          // Register device for push notifications on successful auth
-          await _registerDevice();
           emit(Authenticated(user));
         } else {
           emit(

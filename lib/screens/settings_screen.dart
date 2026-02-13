@@ -1,11 +1,8 @@
 // lib/screens/settings_screen.dart
-import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../blocs/auth_bloc.dart';
 import '../config/theme.dart';
@@ -34,56 +31,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _notificationService = NotificationService(Supabase.instance.client);
     _checkNotificationStatus();
-    _getFcmToken();
-  }
-
-  Future<void> _getFcmToken() async {
-    try {
-      final token = await FirebaseMessaging.instance.getToken();
-      setState(() {
-        _fcmToken = token;
-      });
-    } catch (e) {
-      debugPrint('Failed to get FCM token: $e');
-    }
   }
 
   Future<void> _checkNotificationStatus() async {
     try {
-      final enabled = await _notificationService.areNotificationsEnabled();
+      final status = await _notificationService.getCurrentDeviceStatus();
       setState(() {
-        _notificationsEnabled = enabled;
+        _notificationsEnabled = status['enabled'] as bool;
+        _fcmToken = status['token'] as String?;
       });
     } catch (e) {
       debugPrint('Failed to check notification status: $e');
+      setState(() {
+        _notificationsEnabled = false;
+      });
     }
-  }
-
-  Future<Map<String, String>> _getDeviceInfo() async {
-    final deviceInfo = DeviceInfoPlugin();
-    String deviceType = 'unknown';
-    String deviceName = 'Unknown Device';
-
-    try {
-      if (kIsWeb) {
-        deviceType = 'web';
-        final webInfo = await deviceInfo.webBrowserInfo;
-        deviceName =
-            '${webInfo.browserName.name} on ${webInfo.platform ?? "Web"}';
-      } else if (Platform.isAndroid) {
-        deviceType = 'android';
-        final androidInfo = await deviceInfo.androidInfo;
-        deviceName = '${androidInfo.brand} ${androidInfo.model}';
-      } else if (Platform.isIOS) {
-        deviceType = 'ios';
-        final iosInfo = await deviceInfo.iosInfo;
-        deviceName = '${iosInfo.name} (${iosInfo.model})';
-      }
-    } catch (e) {
-      debugPrint('Failed to get device info: $e');
-    }
-
-    return {'type': deviceType, 'name': deviceName};
   }
 
   Future<void> _toggleNotifications(bool value) async {
@@ -96,20 +58,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       if (value) {
-        // Enable notifications
-        final settings = await FirebaseMessaging.instance.requestPermission(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
+        final enabled = await _notificationService
+            .requestPermissionAndEnableCurrentDevice();
+        final status = await _notificationService.getCurrentDeviceStatus();
 
         if (!mounted) return;
 
-        if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        if (!enabled || !(status['enabled'] as bool? ?? false)) {
           scaffoldMessenger.showSnackBar(
             const SnackBar(
               content: Text(
-                'Notification permission denied. Please enable in settings.',
+                'Unable to enable notifications on this device. Please check app permissions and try again.',
               ),
               backgroundColor: AppTheme.error,
             ),
@@ -117,32 +76,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           return;
         }
 
-        final token = await FirebaseMessaging.instance.getToken();
-
-        if (!mounted) return;
-
-        if (token == null) {
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text('Failed to get notification token'),
-              backgroundColor: AppTheme.error,
-            ),
-          );
-          return;
-        }
-
-        final deviceInfo = await _getDeviceInfo();
-        await _notificationService.enableNotifications(
-          token,
-          deviceInfo['type']!,
-          deviceInfo['name']!,
-        );
-
         if (!mounted) return;
 
         setState(() {
           _notificationsEnabled = true;
-          _fcmToken = token;
+          _fcmToken = status['token'] as String?;
         });
 
         scaffoldMessenger.showSnackBar(
@@ -152,9 +90,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       } else {
-        // Disable notifications
-        if (_fcmToken != null) {
-          await _notificationService.disableNotifications(_fcmToken!);
+        final status = await _notificationService.getCurrentDeviceStatus();
+        final token = status['token'] as String?;
+        if (token != null) {
+          await _notificationService.disableNotifications(token);
         }
 
         if (!mounted) return;
@@ -173,9 +112,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (!mounted) return;
 
+      final message = e.toString();
+      final isWebPushAbort =
+          kIsWeb &&
+          (message.toLowerCase().contains('abort') ||
+              message.toLowerCase().contains('registration failed'));
+
       scaffoldMessenger.showSnackBar(
         SnackBar(
-          content: Text('Failed to update notifications: $e'),
+          content: Text(
+            isWebPushAbort
+                ? 'Web push setup failed. Configure web push and try again.'
+                : 'Failed to update notifications: $e',
+          ),
           backgroundColor: AppTheme.error,
         ),
       );

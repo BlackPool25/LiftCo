@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/workout_session.dart';
 import 'supabase_service.dart';
+import 'current_user_resolver.dart';
 
 /// Refactored Session Service using Edge Functions
 /// Provides cleaner API using standardized CRUD operations
@@ -104,7 +105,7 @@ class SessionService {
       await _api.joinSession(sessionId);
     } catch (e) {
       debugPrint('Error joining session: $e');
-      throw Exception('Failed to join session: $e');
+      rethrow;
     }
   }
 
@@ -114,7 +115,7 @@ class SessionService {
       await _api.leaveSession(sessionId);
     } catch (e) {
       debugPrint('Error leaving session: $e');
-      throw Exception('Failed to leave session: $e');
+      rethrow;
     }
   }
 
@@ -131,8 +132,8 @@ class SessionService {
   /// Get current user's joined sessions
   Future<List<WorkoutSession>> getUserSessions() async {
     try {
-      final user = _client.auth.currentUser;
-      if (user == null) {
+      final appUserId = await CurrentUserResolver.resolveAppUserId(_client);
+      if (appUserId == null) {
         throw Exception('User not authenticated');
       }
 
@@ -140,7 +141,7 @@ class SessionService {
       final memberships = await _client
           .from('session_members')
           .select('session_id')
-          .eq('user_id', user.id)
+          .eq('user_id', appUserId)
           .eq('status', 'joined');
 
       if (memberships.isEmpty) return [];
@@ -179,14 +180,14 @@ class SessionService {
   /// Check if user has joined a specific session
   Future<bool> isUserJoined(String sessionId) async {
     try {
-      final user = _client.auth.currentUser;
-      if (user == null) return false;
+      final appUserId = await CurrentUserResolver.resolveAppUserId(_client);
+      if (appUserId == null) return false;
 
       final membership = await _client
           .from('session_members')
           .select()
           .eq('session_id', sessionId)
-          .eq('user_id', user.id)
+          .eq('user_id', appUserId)
           .eq('status', 'joined')
           .maybeSingle();
 

@@ -227,6 +227,8 @@ class SessionMember extends Equatable {
   final String status;
   final DateTime joinedAt;
   final Map<String, dynamic>? user;
+  final String? profilePhotoUrl;
+  final int? age;
 
   const SessionMember({
     required this.id,
@@ -235,16 +237,21 @@ class SessionMember extends Equatable {
     required this.status,
     required this.joinedAt,
     this.user,
+    this.profilePhotoUrl,
+    this.age,
   });
 
   factory SessionMember.fromJson(Map<String, dynamic> json) {
+    final userData = json['user'] as Map<String, dynamic>?;
     return SessionMember(
       id: json['id'] as String,
       sessionId: json['session_id'] as String,
       userId: json['user_id'] as String,
       status: json['status'] as String,
       joinedAt: DateTime.parse(json['joined_at'] as String),
-      user: json['user'] as Map<String, dynamic>?,
+      user: userData,
+      profilePhotoUrl: userData?['profile_photo_url'] as String?,
+      age: userData?['age'] as int?,
     );
   }
 
@@ -263,16 +270,19 @@ class SessionMember extends Equatable {
       return null;
     }
 
+    final userData = json['user'] as Map<String, dynamic>?;
     return SessionMember(
       id: id,
       sessionId: sessionId,
       userId: userId,
       status: status,
       joinedAt: DateTime.parse(joinedAtRaw),
-      user: json['user'] as Map<String, dynamic>?,
+      user: userData,
+      profilePhotoUrl: userData?['profile_photo_url'] as String?,
+      age: userData?['age'] as int?,
     );
   }
 
   @override
-  List<Object?> get props => [id, sessionId, userId, status, joinedAt, user];
+  List<Object?> get props => [id, sessionId, userId, status, joinedAt, user, profilePhotoUrl, age];
 }

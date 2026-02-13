@@ -131,7 +131,7 @@ class AuthService {
       final response = await _supabase
           .from('users')
           .select()
-          .eq('id', authUser.id)
+          .eq('auth_id', authUser.id)
           .maybeSingle();
 
       if (response == null) return null;
@@ -151,7 +151,7 @@ class AuthService {
       final response = await _supabase
           .from('users')
           .select('id')
-          .eq('id', authUser.id)
+          .eq('auth_id', authUser.id)
           .maybeSingle();
 
       return response != null;
@@ -179,12 +179,21 @@ class AuthService {
 
       // Normalize phone number: treat empty strings as null for consistency
       final phoneNumber = authUser.phone?.trim();
+      final email = authUser.email?.trim();
+      final normalizedPhone = (phoneNumber?.isNotEmpty ?? false)
+          ? phoneNumber
+          : null;
+      final normalizedEmail = (email?.isNotEmpty ?? false) ? email : null;
+
+      if (normalizedEmail == null && normalizedPhone == null) {
+        throw AuthException('Profile requires at least email or phone number');
+      }
 
       final userData = {
-        'id': authUser.id,
         'name': name,
-        'email': authUser.email,
-        'phone_number': (phoneNumber?.isNotEmpty ?? false) ? phoneNumber : null,
+        'auth_id': authUser.id,
+        'email': normalizedEmail,
+        'phone_number': normalizedPhone,
         'age': age,
         'gender': gender,
         'experience_level': experienceLevel,
@@ -195,13 +204,22 @@ class AuthService {
         'reputation_score': 100,
       };
 
-      debugPrint('Saving user profile with data: $userData');
+        debugPrint('Saving user profile with data: $userData');
 
-      final response = await _supabase
+      Map<String, dynamic>? existingProfile = await _supabase
           .from('users')
-          .upsert(userData, onConflict: 'id')
-          .select()
-          .single();
+          .select('id')
+          .eq('auth_id', authUser.id)
+          .maybeSingle();
+
+      final response = existingProfile != null
+          ? await _supabase
+                .from('users')
+                .update({...userData, 'updated_at': DateTime.now().toIso8601String()})
+                .eq('id', existingProfile['id'])
+                .select()
+                .single()
+          : await _supabase.from('users').insert(userData).select().single();
 
       debugPrint('Profile saved successfully: $response');
       return app_user.User.fromJson(response);

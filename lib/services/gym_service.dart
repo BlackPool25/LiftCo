@@ -3,29 +3,23 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/gym.dart';
 import '../models/workout_session.dart';
+import 'supabase_service.dart';
 
 class GymService {
   final SupabaseClient _supabase;
+  late final SupabaseService _api;
 
-  GymService(this._supabase);
+  GymService(this._supabase) {
+    _api = SupabaseService(_supabase);
+  }
 
   /// Fetch all gyms with optional search
   Future<List<Gym>> getGyms({String? searchQuery}) async {
     try {
-      final List<Map<String, dynamic>> data;
-
-      if (searchQuery != null && searchQuery.isNotEmpty) {
-        data = await _supabase
-            .from('gyms')
-            .select()
-            .or('name.ilike.%$searchQuery%,address.ilike.%$searchQuery%')
-            .order('name', ascending: true);
-      } else {
-        data = await _supabase
-            .from('gyms')
-            .select()
-            .order('name', ascending: true);
-      }
+      final response = await _api.listGyms(search: searchQuery);
+      final data = (response['gyms'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
 
       return data.map((json) => Gym.fromJson(json)).toList();
     } on PostgrestException catch (e) {
@@ -40,14 +34,11 @@ class GymService {
   /// Get a single gym by ID
   Future<Gym?> getGymById(int id) async {
     try {
-      final response = await _supabase
-          .from('gyms')
-          .select()
-          .eq('id', id)
-          .maybeSingle();
+      final response = await _api.getGym(id);
+      final gymJson = response['gym'] as Map<String, dynamic>?;
 
-      if (response == null) return null;
-      return Gym.fromJson(response);
+      if (gymJson == null) return null;
+      return Gym.fromJson(gymJson);
     } on PostgrestException catch (e) {
       debugPrint('Error fetching gym: ${e.message}');
       throw Exception('Failed to fetch gym: ${e.message}');
@@ -57,26 +48,22 @@ class GymService {
     }
   }
 
-  /// Get available sessions for a gym
-  /// Returns sessions that are upcoming and not full
+  /// Get upcoming sessions for a gym
   Future<List<WorkoutSession>> getGymSessions(int gymId) async {
     try {
-      // Fetch sessions without nested members (to avoid relationship issues)
-      final response = await _supabase
-          .from('workout_sessions')
-          .select('''
-            *,
-            host:host_user_id(id, name)
-          ''')
-          .eq('gym_id', gymId)
-          .eq('status', 'upcoming')
-          .gte('start_time', DateTime.now().toIso8601String())
-          .order('start_time', ascending: true);
+      final response = await _api.listSessions(
+        gymId: gymId,
+        status: 'upcoming',
+        limit: 50,
+        offset: 0,
+      );
 
-      return response
-          .map((json) => WorkoutSession.fromJson(json))
-          .where((session) => !session.isFull)
+      final sessions = (response['sessions'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(WorkoutSession.fromJson)
           .toList();
+
+      return sessions;
     } on PostgrestException catch (e) {
       debugPrint('Error fetching gym sessions: ${e.message}');
       throw Exception('Failed to fetch sessions: ${e.message}');
@@ -90,20 +77,6 @@ class GymService {
   Future<List<Gym>> searchGyms(String query) async {
     if (query.isEmpty) return getGyms();
 
-    try {
-      final response = await _supabase
-          .from('gyms')
-          .select()
-          .or('name.ilike.%$query%,address.ilike.%$query%')
-          .order('name', ascending: true);
-
-      return response.map((json) => Gym.fromJson(json)).toList();
-    } on PostgrestException catch (e) {
-      debugPrint('Error searching gyms: ${e.message}');
-      throw Exception('Failed to search gyms: ${e.message}');
-    } catch (e) {
-      debugPrint('Unexpected error searching gyms: $e');
-      throw Exception('Failed to search gyms');
-    }
+    return getGyms(searchQuery: query);
   }
 }

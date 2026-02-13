@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/theme.dart';
 import '../models/workout_session.dart';
+import '../services/current_user_resolver.dart';
 import '../services/session_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
@@ -21,7 +22,7 @@ class SessionDetailsScreen extends StatefulWidget {
 class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   late SessionService _sessionService;
   WorkoutSession? _session;
-  bool _isLoading = false;
+  final bool _isLoading = false;
   bool _isJoining = false;
   String? _currentUserId;
   bool _isUserJoined = false;
@@ -36,6 +37,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     _sessionService = SessionService(Supabase.instance.client);
     _session = widget.session;
     _getCurrentUser();
+    _loadSessionDetails();
     _subscribeToSession();
     _subscribeToMembers();
   }
@@ -103,10 +105,12 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   }
 
   Future<void> _getCurrentUser() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user != null) {
+    final appUserId = await CurrentUserResolver.resolveAppUserId(
+      Supabase.instance.client,
+    );
+    if (appUserId != null) {
       setState(() {
-        _currentUserId = user.id;
+        _currentUserId = appUserId;
         _checkIfUserJoined();
       });
     }
@@ -121,24 +125,16 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   }
 
   Future<void> _loadSessionDetails() async {
-    setState(() {
-      _isLoading = true;
-    });
-
     try {
       final session = await _sessionService.getSession(_session!.id);
-      if (session != null) {
+      if (session != null && mounted) {
         setState(() {
           _session = session;
           _checkIfUserJoined();
         });
       }
     } catch (e) {
-      // Ignore error, use initial session data
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      debugPrint('Error loading session details: $e');
     }
   }
 
@@ -157,7 +153,8 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
             backgroundColor: AppTheme.success,
           ),
         );
-        Navigator.pop(context, true);
+        // Reload session to show updated member list and count
+        await _loadSessionDetails();
       }
     } catch (e) {
       if (mounted) {
@@ -221,7 +218,8 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
             backgroundColor: AppTheme.textSecondary,
           ),
         );
-        Navigator.pop(context, true);
+        // Reload session to show updated member list and count
+        await _loadSessionDetails();
       }
     } catch (e) {
       if (mounted) {
@@ -438,6 +436,8 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     return true;
   }
 
+  bool get _canViewOtherMembers => _isHost || _isUserJoined;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -477,17 +477,44 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
 
                     const SliverToBoxAdapter(child: SizedBox(height: 16)),
 
-                    // Members list
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate((context, index) {
-                          final member = _session?.members?[index];
-                          if (member == null) return null;
-                          return _buildMemberCard(member, index);
-                        }, childCount: _session?.members?.length ?? 0),
+                    // Members list (visible only to joined members or host)
+                    if (_canViewOtherMembers)
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate((context, index) {
+                            final joinedMembers = _session?.members
+                                    ?.where((m) => m.status == 'joined')
+                                    .toList() ??
+                                [];
+                            if (index >= joinedMembers.length) return null;
+                            return _buildMemberCard(joinedMembers[index], index);
+                          },
+                              childCount: _session?.members
+                                      ?.where((m) => m.status == 'joined')
+                                      .length ??
+                                  0),
+                        ),
+                      )
+                    else
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: GlassCard(
+                            padding: const EdgeInsets.all(16),
+                            borderRadius: 14,
+                            child: const Text(
+                              'Join to see other members info',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
 
                     const SliverToBoxAdapter(child: SizedBox(height: 100)),
                   ],
@@ -643,26 +670,42 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           // Host info
           Row(
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  gradient: AppTheme.accentGradient,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Center(
-                  child: Icon(Icons.person, color: Colors.white, size: 20),
-                ),
+              _buildAvatarWidget(
+                name: _session?.host?['name'] ?? 'U',
+                photoUrl: _session?.host?['profile_photo_url'] as String?,
+                size: 44,
+                isHost: true,
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Host',
-                      style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                    Row(
+                      children: [
+                        Text(
+                          'Host',
+                          style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            gradient: AppTheme.primaryGradient,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.star, color: Colors.white, size: 10),
+                              SizedBox(width: 2),
+                              Text('HOST', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       _session?.host?['name'] ?? 'Unknown',
                       style: const TextStyle(
@@ -671,6 +714,14 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    if (_session?.host?['age'] != null)
+                      Text(
+                        '${_session!.host!['age']} yrs',
+                        style: const TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -734,108 +785,190 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     );
   }
 
+  /// Builds an avatar widget with profile photo or initials fallback
+  Widget _buildAvatarWidget({
+    required String name,
+    String? photoUrl,
+    double size = 44,
+    bool isHost = false,
+    bool isCurrentUser = false,
+  }) {
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(size / 3),
+          border: Border.all(
+            color: isHost
+                ? AppTheme.primaryPurple
+                : isCurrentUser
+                    ? AppTheme.accentCyan
+                    : AppTheme.surfaceBorder,
+            width: 2,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(size / 3 - 1),
+          child: Image.network(
+            photoUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (_, error, stackTrace) =>
+                _buildInitialsAvatar(name, size, isHost),
+          ),
+        ),
+      );
+    }
+    return _buildInitialsAvatar(name, size, isHost);
+  }
+
+  Widget _buildInitialsAvatar(String name, double size, bool isHost) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: isHost ? AppTheme.primaryGradient : AppTheme.accentGradient,
+        borderRadius: BorderRadius.circular(size / 3),
+      ),
+      child: Center(
+        child: Text(
+          name.isNotEmpty ? name[0].toUpperCase() : 'U',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: size * 0.38,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMemberCard(SessionMember member, int index) {
     final isHost = member.userId == _session?.hostUserId;
     final isCurrentUser = member.userId == _currentUserId;
 
-    return GlassCard(
-      padding: const EdgeInsets.all(12),
-      borderRadius: 12,
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              gradient: isHost
-                  ? AppTheme.primaryGradient
-                  : AppTheme.accentGradient,
-              borderRadius: BorderRadius.circular(10),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: GlassCard(
+        padding: const EdgeInsets.all(14),
+        borderRadius: 14,
+        child: Row(
+          children: [
+            // Profile photo avatar
+            _buildAvatarWidget(
+              name: member.user?['name'] ?? 'U',
+              photoUrl: member.profilePhotoUrl,
+              size: 44,
+              isHost: isHost,
+              isCurrentUser: isCurrentUser,
             ),
-            child: Center(
-              child: Text(
-                (member.user?['name'] ?? 'U')[0].toUpperCase(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          member.user?['name'] ?? 'Unknown',
+                          style: TextStyle(
+                            color: isCurrentUser
+                                ? AppTheme.accentCyan
+                                : AppTheme.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (isHost) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            gradient: AppTheme.primaryGradient,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.star, color: Colors.white, size: 10),
+                              SizedBox(width: 2),
+                              Text(
+                                'HOST',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (isCurrentUser) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentCyan.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'YOU',
+                            style: TextStyle(
+                              color: AppTheme.accentCyan,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        'Joined ${_formatJoinedTime(member.joinedAt)}',
+                        style: const TextStyle(
+                          color: AppTheme.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (member.age != null) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          width: 3,
+                          height: 3,
+                          decoration: BoxDecoration(
+                            color: AppTheme.textMuted,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${member.age} yrs',
+                          style: const TextStyle(
+                            color: AppTheme.textMuted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      member.user?['name'] ?? 'Unknown',
-                      style: TextStyle(
-                        color: isCurrentUser
-                            ? AppTheme.accentCyan
-                            : AppTheme.textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (isHost) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          gradient: AppTheme.primaryGradient,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          'HOST',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                    if (isCurrentUser && !isHost) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.accentCyan.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          'YOU',
-                          style: TextStyle(
-                            color: AppTheme.accentCyan,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Joined ${_formatJoinedTime(member.joinedAt)}',
-                  style: const TextStyle(
-                    color: AppTheme.textMuted,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     ).animate().fadeIn(delay: (200 + index * 50).ms);
   }

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/theme.dart';
 import '../models/gym.dart';
 import '../services/gym_service.dart';
+import '../services/current_user_resolver.dart';
 import '../services/session_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
@@ -70,15 +71,12 @@ class _CreateSessionScreenState extends State<CreateSessionScreen> {
 
   Future<void> _loadCurrentUserGender() async {
     try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user != null) {
-        final response = await Supabase.instance.client
-            .from('users')
-            .select('gender')
-            .eq('id', user.id)
-            .single();
+      final profile = await CurrentUserResolver.resolveCurrentUserProfile(
+        Supabase.instance.client,
+      );
+      if (profile != null) {
         setState(() {
-          _currentUserGender = response['gender'] as String?;
+          _currentUserGender = profile['gender'] as String?;
         });
       }
     } catch (e) {

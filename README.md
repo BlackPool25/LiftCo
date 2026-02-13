@@ -754,7 +754,92 @@ This project is licensed under the MIT License.
 - ✅ Added comprehensive type safety
 
 ### Database Updates
-- ✅ Added triggers for automatic count management
-- ✅ Fixed session_members schema with proper UUID types
-- ✅ Added women_only column with RLS policies
-- ✅ Verified all RLS policies are working correctly
+- ✅ **Member Count Triggers Fixed**: Added INSERT, UPDATE, and DELETE triggers on `session_members` table to automatically sync `current_count` with actual joined members
+- ✅ **Fixed session_members schema** with proper UUID types
+- ✅ **Added women_only column** with RLS policies
+- ✅ **Verified all RLS policies** are working correctly
+- ✅ **Auto-Complete Sessions**: Cron job marks sessions as `finished` when end time passes
+- ✅ **Notification Triggers**: Database triggers notify when members join/leave (for audit/debugging)
+
+### Critical Fix: User ID Comparison
+**Problem**: Auth user ID (from `auth.users`) didn't match users table ID (from `public.users`), causing:
+- User's name not appearing in members list
+- "Join Session" button showing instead of "Leave" even when joined
+- Incorrect member detection
+
+**Solution**: Session details screen now queries the `users` table by email/phone to get the correct user ID:
+```dart
+final response = await Supabase.instance.client
+    .from('users')
+    .select('id')
+    .or('email.eq.${authUser.email},phone_number.eq.${authUser.phone}')
+    .single();
+_currentUserId = response['id'] as String; // Now matches session_members.user_id
+```
+
+### Debug Logging Added
+Comprehensive debug logging added to `session_details_screen.dart`:
+- User lookup process
+- Member comparison (userId vs _currentUserId)
+- UI build status (_isUserJoined, _sortedMembers)
+- Member tile rendering (showing which member is current user)
+
+**To see debug logs**: Run app with `flutter run` and check console output for `[SessionDetails]` messages.
+
+### Notification System Implementation (FIXED & ENHANCED)
+- ✅ **Settings Toggle Fixed**: Now properly checks Firebase permission status + current device token in database. Toggle persists correctly across app restarts.
+- ✅ **Join Notifications**: When user A joins a session with users B & C, only B & C receive notification. A is excluded.
+- ✅ **Leave Notifications**: When user A leaves, only remaining members (B & C) are notified. A is excluded.
+- ✅ **Session Reminders**: Automated reminders at 2 hours and 30 minutes before session start
+- ✅ **Smart Delivery**: Only sends to devices with `is_active = true` and valid FCM tokens
+- ✅ **Debug Logging**: Added comprehensive logging to track notification delivery
+
+### Session Member Management (REDESIGNED)
+- ✅ **New Grid Layout**: Members displayed in 2-column grid tiles with profile photos
+- ✅ **Host Section**: Dedicated host tile at top with prominent HOST badge
+- ✅ **Age Display**: Members can now see each other's ages (RLS policy updated)
+- ✅ **Self Identification**: "YOU" badge on current user's tile
+- ✅ **Profile Photos**: Full photo display with initials fallback
+- ✅ **Responsive Design**: Clean card-based layout with proper spacing
+
+### Session Listings Enhanced
+- ✅ **Host Visibility**: Host name and profile photo now visible in session cards
+- ✅ **Women-Only Respect**: Host info only shown for sessions user has permission to view
+- ✅ **Better UI**: Host photo shown as session icon with name displayed below title
+
+### New Edge Functions
+| Function | Description | Schedule |
+|----------|-------------|----------|
+| `session-reminders` | Sends reminders 2h & 30min before sessions | Cron (10 min) |
+| `session-auto-complete` | Auto-marks sessions as finished when time ends | Cron (5 min) |
+| `sessions-join` | Join session + notify existing members (not joiner) | On HTTP call |
+| `sessions-leave` | Leave session + notify remaining members (not leaver) | On HTTP call |
+| `sessions-get` | Get session with host/member ages & photos | On HTTP call |
+| `sessions-list` | List sessions with host profile info | On HTTP call |
+
+### New Edge Functions
+| Function | Description | Trigger |
+|----------|-------------|---------|
+| `session-reminders` | Sends reminder notifications 2 hours and 30 mins before sessions | Cron job (every 10 min) |
+| Updated `sessions-join` | Now sends notifications to existing members when someone joins | On session join |
+| Updated `sessions-leave` | Now sends notifications when a member leaves | On session leave |
+| Updated `sessions-get` | Now includes `profile_photo_url` in member and host data | On session fetch |
+
+### Database Schema Updates
+```sql
+-- RLS Policy: Allow session members to view each other's profiles
+create policy "Allow session members to view each other's profiles"
+  on public.users for select to authenticated
+  using (
+    auth.uid() = id
+    or exists (
+      select 1 from session_members sm1
+      join session_members sm2 on sm1.session_id = sm2.session_id
+      where sm1.user_id = auth.uid() and sm2.user_id = users.id
+      and sm1.status = 'joined' and sm2.status = 'joined'
+    )
+  );
+
+-- Cron job for session reminders (runs every 10 minutes)
+select cron.schedule('session-reminders-job', '*/10 * * * *', ...);
+```

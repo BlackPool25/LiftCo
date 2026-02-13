@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/theme.dart';
 import '../models/workout_session.dart';
+import '../services/current_user_resolver.dart';
 import '../services/session_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
@@ -24,6 +25,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   List<WorkoutSession> _sessions = [];
   bool _isLoading = true;
   String? _error;
+  String? _currentAppUserId;
 
   // Realtime subscription
   StreamSubscription<List<WorkoutSession>>? _sessionsSubscription;
@@ -32,7 +34,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   void initState() {
     super.initState();
     _sessionService = SessionService(Supabase.instance.client);
+    _loadCurrentAppUserId();
     _subscribeToUserSessions();
+  }
+
+  Future<void> _loadCurrentAppUserId() async {
+    final appUserId = await CurrentUserResolver.resolveAppUserId(
+      Supabase.instance.client,
+    );
+    if (!mounted) return;
+    setState(() {
+      _currentAppUserId = appUserId;
+    });
   }
 
   @override
@@ -104,8 +117,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       MaterialPageRoute(
         builder: (context) => SessionDetailsScreen(session: session),
       ),
-    );
-    // No need to reload - realtime subscription will update automatically
+    ).then((_) {
+      _refresh();
+    });
   }
 
   @override
@@ -232,8 +246,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Widget _buildSessionCard(WorkoutSession session, int index) {
-    final isHost =
-        session.hostUserId == Supabase.instance.client.auth.currentUser?.id;
+    final isHost = session.hostUserId == _currentAppUserId;
 
     return Dismissible(
       key: Key(session.id),

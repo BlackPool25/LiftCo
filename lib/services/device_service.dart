@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'current_user_resolver.dart';
 
 class DeviceService {
   final SupabaseClient _supabase;
@@ -14,9 +16,28 @@ class DeviceService {
     : _messaging = FirebaseMessaging.instance,
       _deviceInfo = DeviceInfoPlugin();
 
+  Future<String?> _getFcmToken() async {
+    if (kIsWeb) {
+      final vapidKey = dotenv.env['FIREBASE_WEB_VAPID_KEY']?.trim() ?? '';
+      if (vapidKey.isEmpty) {
+        debugPrint('Missing FIREBASE_WEB_VAPID_KEY for web push token');
+        return null;
+      }
+      return _messaging.getToken(vapidKey: vapidKey);
+    }
+
+    return _messaging.getToken();
+  }
+
   /// Register device with FCM token for push notifications
-  Future<void> registerDevice(String userId) async {
+  Future<void> registerDevice() async {
     try {
+      final userId = await CurrentUserResolver.resolveAppUserId(_supabase);
+      if (userId == null) {
+        debugPrint('Failed to resolve app user ID for device registration');
+        return;
+      }
+
       // Request notification permissions
       final settings = await _messaging.requestPermission(
         alert: true,
@@ -30,7 +51,7 @@ class DeviceService {
       }
 
       // Get FCM token
-      final fcmToken = await _messaging.getToken();
+      final fcmToken = await _getFcmToken();
       if (fcmToken == null) {
         debugPrint('Failed to get FCM token');
         return;
@@ -112,9 +133,15 @@ class DeviceService {
   }
 
   /// Deactivate device (e.g., on logout)
-  Future<void> deactivateDevice(String userId) async {
+  Future<void> deactivateDevice() async {
     try {
-      final fcmToken = await _messaging.getToken();
+      final userId = await CurrentUserResolver.resolveAppUserId(_supabase);
+      if (userId == null) {
+        debugPrint('Failed to resolve app user ID for device deactivation');
+        return;
+      }
+
+      final fcmToken = await _getFcmToken();
       if (fcmToken == null) return;
 
       await _supabase
@@ -133,9 +160,12 @@ class DeviceService {
   }
 
   /// Update last seen timestamp (call periodically)
-  Future<void> updateLastSeen(String userId) async {
+  Future<void> updateLastSeen() async {
     try {
-      final fcmToken = await _messaging.getToken();
+      final userId = await CurrentUserResolver.resolveAppUserId(_supabase);
+      if (userId == null) return;
+
+      final fcmToken = await _getFcmToken();
       if (fcmToken == null) return;
 
       await _supabase

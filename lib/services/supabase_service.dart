@@ -1,25 +1,135 @@
 // lib/services/supabase_service.dart
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Generic CRUD service using Supabase Edge Functions
 /// Provides a standard interface for all database operations
 class SupabaseService {
   final SupabaseClient _client;
-  final String _baseUrl;
 
-  SupabaseService(this._client)
-    : _baseUrl = 'https://bpfptwqysbouppknzaqk.supabase.co';
+  SupabaseService(this._client);
 
-  /// Get the authorization header for edge functions
-  Map<String, String> get _headers {
-    final session = _client.auth.currentSession;
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ${session?.accessToken ?? ''}',
-    };
+  String _encodeParams(Map<String, dynamic> params) {
+    return params.entries
+        .map(
+          (entry) =>
+              '${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(entry.value.toString())}',
+        )
+        .join('&');
+  }
+
+  Future<Map<String, dynamic>> _invoke(
+    String functionName, {
+    HttpMethod method = HttpMethod.post,
+    dynamic body,
+    bool retryOnUnauthorized = true,
+  }) async {
+    try {
+      Session? session = _client.auth.currentSession;
+      if (session == null) {
+        final refreshed = await _client.auth.refreshSession();
+        session = refreshed.session;
+      }
+
+      final accessToken = session?.accessToken;
+      final anonKey = dotenv.env['SUPABASE_ANON_KEY']?.trim();
+      final headers = <String, String>{};
+      if (anonKey != null && anonKey.isNotEmpty) {
+        headers['apikey'] = anonKey;
+      }
+      if (accessToken != null && accessToken.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $accessToken';
+      }
+
+      final baseUrl = dotenv.env['SUPABASE_URL']?.trim();
+      if (baseUrl == null || baseUrl.isEmpty) {
+        throw Exception('SUPABASE_URL is not configured');
+      }
+
+      final uri = Uri.parse('$baseUrl/functions/v1/$functionName');
+      final requestHeaders = <String, String>{...headers};
+      if (body != null) {
+        requestHeaders['Content-Type'] = 'application/json';
+      }
+
+      http.Response response;
+      final encodedBody = body == null ? null : jsonEncode(body);
+      switch (method) {
+        case HttpMethod.get:
+          response = await http.get(uri, headers: requestHeaders);
+          break;
+        case HttpMethod.post:
+          response = await http.post(
+            uri,
+            headers: requestHeaders,
+            body: encodedBody,
+          );
+          break;
+        case HttpMethod.put:
+          response = await http.put(
+            uri,
+            headers: requestHeaders,
+            body: encodedBody,
+          );
+          break;
+        case HttpMethod.patch:
+          response = await http.patch(
+            uri,
+            headers: requestHeaders,
+            body: encodedBody,
+          );
+          break;
+        case HttpMethod.delete:
+          response = await http.delete(
+            uri,
+            headers: requestHeaders,
+            body: encodedBody,
+          );
+          break;
+      }
+
+      dynamic decodedData;
+      if (response.body.isNotEmpty) {
+        try {
+          decodedData = jsonDecode(response.body);
+        } catch (_) {
+          decodedData = response.body;
+        }
+      }
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode == 401 && retryOnUnauthorized) {
+          final refreshed = await _client.auth.refreshSession();
+          if (refreshed.session != null) {
+            return _invoke(
+              functionName,
+              method: method,
+              body: body,
+              retryOnUnauthorized: false,
+            );
+          }
+        }
+
+        final data = decodedData;
+        final errorMessage = data is Map<String, dynamic>
+            ? (data['error']?.toString() ?? 'Request failed')
+            : 'Request failed';
+        throw Exception(errorMessage);
+      }
+
+      final data = decodedData;
+      if (data == null) return <String, dynamic>{};
+      if (data is Map<String, dynamic>) return data;
+      if (data is List) return {'data': data};
+      return {'data': data};
+    } catch (e) {
+      debugPrint('Error invoking $functionName: $e');
+      rethrow;
+    }
   }
 
   /// Generic GET request to edge function
@@ -27,27 +137,11 @@ class SupabaseService {
     String functionName, {
     Map<String, dynamic>? params,
   }) async {
-    try {
-      final uri = params != null
-          ? Uri.parse('$_baseUrl/functions/v1/$functionName').replace(
-              queryParameters: params.map(
-                (key, value) => MapEntry(key, value.toString()),
-              ),
-            )
-          : Uri.parse('$_baseUrl/functions/v1/$functionName');
-
-      final response = await http.get(uri, headers: _headers);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
-      } else {
-        final error = jsonDecode(response.body);
-        throw Exception(error['error'] ?? 'Request failed');
-      }
-    } catch (e) {
-      debugPrint('Error in GET $functionName: $e');
-      rethrow;
-    }
+    final target =
+        params == null || params.isEmpty
+        ? functionName
+        : '$functionName?${_encodeParams(params)}';
+    return _invoke(target, method: HttpMethod.get);
   }
 
   /// Generic POST request to edge function
@@ -55,23 +149,7 @@ class SupabaseService {
     String functionName, {
     Map<String, dynamic>? body,
   }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/functions/v1/$functionName'),
-        headers: _headers,
-        body: body != null ? jsonEncode(body) : null,
-      );
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
-      } else {
-        final error = jsonDecode(response.body);
-        throw Exception(error['error'] ?? 'Request failed');
-      }
-    } catch (e) {
-      debugPrint('Error in POST $functionName: $e');
-      rethrow;
-    }
+    return _invoke(functionName, method: HttpMethod.post, body: body);
   }
 
   /// Generic PATCH/PUT request to edge function
@@ -79,23 +157,7 @@ class SupabaseService {
     String functionName, {
     Map<String, dynamic>? body,
   }) async {
-    try {
-      final response = await http.patch(
-        Uri.parse('$_baseUrl/functions/v1/$functionName'),
-        headers: _headers,
-        body: body != null ? jsonEncode(body) : null,
-      );
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
-      } else {
-        final error = jsonDecode(response.body);
-        throw Exception(error['error'] ?? 'Request failed');
-      }
-    } catch (e) {
-      debugPrint('Error in PATCH $functionName: $e');
-      rethrow;
-    }
+    return _invoke(functionName, method: HttpMethod.patch, body: body);
   }
 
   /// Generic DELETE request to edge function
@@ -103,27 +165,11 @@ class SupabaseService {
     String functionName, {
     Map<String, dynamic>? params,
   }) async {
-    try {
-      final uri = params != null
-          ? Uri.parse('$_baseUrl/functions/v1/$functionName').replace(
-              queryParameters: params.map(
-                (key, value) => MapEntry(key, value.toString()),
-              ),
-            )
-          : Uri.parse('$_baseUrl/functions/v1/$functionName');
-
-      final response = await http.delete(uri, headers: _headers);
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return jsonDecode(response.body) as Map<String, dynamic>;
-      } else {
-        final error = jsonDecode(response.body);
-        throw Exception(error['error'] ?? 'Request failed');
-      }
-    } catch (e) {
-      debugPrint('Error in DELETE $functionName: $e');
-      rethrow;
-    }
+    final target =
+        params == null || params.isEmpty
+        ? functionName
+        : '$functionName?${_encodeParams(params)}';
+    return _invoke(target, method: HttpMethod.delete);
   }
 
   // ==================== SESSIONS CRUD ====================
@@ -137,6 +183,7 @@ class SupabaseService {
     String? dateTo,
     int limit = 50,
     int offset = 0,
+    bool joinedOnly = false,
   }) async {
     final params = <String, dynamic>{
       'limit': limit.toString(),
@@ -148,13 +195,14 @@ class SupabaseService {
     if (sessionType != null) params['session_type'] = sessionType;
     if (dateFrom != null) params['date_from'] = dateFrom;
     if (dateTo != null) params['date_to'] = dateTo;
+    if (joinedOnly) params['joined_only'] = 'true';
 
     return get('sessions-list', params: params);
   }
 
   /// Get a single session by ID
   Future<Map<String, dynamic>> getSession(String sessionId) async {
-    return get('sessions-get', params: {'id': sessionId});
+    return get('sessions-get/$sessionId');
   }
 
   /// Create a new session
@@ -213,7 +261,7 @@ class SupabaseService {
 
   /// Get a single gym by ID
   Future<Map<String, dynamic>> getGym(int gymId) async {
-    return get('gyms-get', params: {'id': gymId.toString()});
+    return get('gyms-get/$gymId');
   }
 
   // ==================== USERS CRUD ====================
