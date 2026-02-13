@@ -165,6 +165,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   final DeviceService? _deviceService;
 
+  Future<void> _registerDeviceSilently() async {
+    if (_deviceService == null) return;
+    try {
+      await _deviceService.registerDevice();
+    } catch (e) {
+      debugPrint('Failed to auto-register device: $e');
+    }
+  }
+
   AuthBloc(this._authService, {DeviceService? deviceService})
     : _deviceService = deviceService,
       super(AuthInitial()) {
@@ -194,6 +203,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         if (user != null) {
           if (user.isProfileComplete) {
             emit(Authenticated(user));
+            await _registerDeviceSilently();
           } else {
             emit(
               NeedsProfileCompletion(
@@ -355,6 +365,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
 
       emit(Authenticated(user));
+      await _registerDeviceSilently();
     } catch (e) {
       debugPrint('Profile completion failed: $e');
       emit(AuthError(e.toString()));
@@ -407,6 +418,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         final user = await _authService.getUserProfile();
         if (user != null && user.isProfileComplete) {
           emit(Authenticated(user));
+          await _registerDeviceSilently();
         } else {
           emit(
             NeedsProfileCompletion(

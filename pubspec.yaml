@@ -38,6 +38,9 @@ dependencies:
   
   # Device Info
   device_info_plus: ^10.1.0
+
+  # Runtime Permissions
+  permission_handler: ^11.4.0
   
   # HTTP Client for Edge Functions
   http: ^1.2.0

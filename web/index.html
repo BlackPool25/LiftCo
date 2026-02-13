@@ -54,6 +54,18 @@
 </head>
 
 <body>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async () => {
+        try {
+          await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+          console.log('firebase-messaging-sw.js registered');
+        } catch (error) {
+          console.error('Failed to register firebase-messaging-sw.js', error);
+        }
+      });
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 

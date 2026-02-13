@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'current_user_resolver.dart';
 import 'supabase_service.dart';
@@ -14,6 +15,11 @@ class NotificationService {
 
   NotificationService(this._supabase) {
     _api = SupabaseService(_supabase);
+  }
+
+  bool _isPermissionGranted(AuthorizationStatus status) {
+    return status == AuthorizationStatus.authorized ||
+        status == AuthorizationStatus.provisional;
   }
 
   Future<Map<String, String>> _getDeviceInfo() async {
@@ -44,40 +50,86 @@ class NotificationService {
   }
 
   Future<bool> requestPermissionAndEnableCurrentDevice() async {
-    try {
-      final settings = await FirebaseMessaging.instance.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        return false;
+    if (kIsWeb) {
+      final host = Uri.base.host.toLowerCase();
+      final isLocalhost = host == 'localhost' || host == '127.0.0.1';
+      final isSecure = Uri.base.scheme.toLowerCase() == 'https';
+      if (!isLocalhost && !isSecure) {
+        throw Exception(
+          'Web push requires HTTPS (or localhost). Open the app on a secure origin and retry.',
+        );
       }
-
-      final token = await getFcmToken();
-      if (token == null) return false;
-
-      final deviceInfo = await _getDeviceInfo();
-      await enableNotifications(token, deviceInfo['type']!, deviceInfo['name']!);
-      return true;
-    } catch (e) {
-      debugPrint('Failed to enable current device notifications: $e');
-      return false;
     }
+
+    if (!kIsWeb && Platform.isAndroid) {
+      final osPermission = await Permission.notification.status;
+      if (!osPermission.isGranted) {
+        final requested = await Permission.notification.request();
+        if (!requested.isGranted) {
+          throw Exception(
+            'Notification permission is denied at Android system level.',
+          );
+        }
+      }
+    }
+
+    final settings = await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    if (!_isPermissionGranted(settings.authorizationStatus)) {
+      throw Exception('Firebase notification permission not granted.');
+    }
+
+    if (kIsWeb) {
+      final current = await FirebaseMessaging.instance.getNotificationSettings();
+      if (!_isPermissionGranted(current.authorizationStatus)) {
+        throw Exception(
+          'Browser notifications are blocked. Allow notifications for this site and retry.',
+        );
+      }
+    }
+
+    var token = await getFcmToken();
+    if (token == null || token.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      token = await getFcmToken();
+    }
+    if (token == null || token.isEmpty) {
+      throw Exception(
+        'FCM token is unavailable. Check Firebase/Google Play Services setup.',
+      );
+    }
+
+    final deviceInfo = await _getDeviceInfo();
+    await enableNotifications(token, deviceInfo['type']!, deviceInfo['name']!);
+    return true;
   }
 
   Future<String?> getFcmToken() async {
     try {
       if (kIsWeb) {
         final vapidKey = dotenv.env['FIREBASE_WEB_VAPID_KEY']?.trim() ?? '';
-        if (vapidKey.isEmpty) {
+        if (vapidKey.isNotEmpty) {
+          try {
+            final token = await FirebaseMessaging.instance.getToken(
+              vapidKey: vapidKey,
+            );
+            if (token != null && token.isNotEmpty) {
+              return token;
+            }
+          } catch (vapidError) {
+            debugPrint('FCM web token with VAPID failed: $vapidError');
+          }
+        } else {
           debugPrint(
-            'Web push is not configured. Missing FIREBASE_WEB_VAPID_KEY.',
+            'Web push missing FIREBASE_WEB_VAPID_KEY, trying default web token flow.',
           );
-          return null;
         }
-        return FirebaseMessaging.instance.getToken(vapidKey: vapidKey);
+
+        return FirebaseMessaging.instance.getToken();
       }
 
       return FirebaseMessaging.instance.getToken();
@@ -99,7 +151,7 @@ class NotificationService {
       // Check Firebase messaging permission
       final settings = await FirebaseMessaging.instance
           .getNotificationSettings();
-      if (settings.authorizationStatus != AuthorizationStatus.authorized) {
+      if (!_isPermissionGranted(settings.authorizationStatus)) {
         return false;
       }
 
@@ -135,15 +187,31 @@ class NotificationService {
         throw Exception('User not authenticated');
       }
 
-      await _api.registerDevice(
-        fcmToken: fcmToken,
-        deviceType: deviceType,
-        deviceName: deviceName,
-      );
+      var edgeRegistered = false;
+      try {
+        await _api.registerDevice(
+          fcmToken: fcmToken,
+          deviceType: deviceType,
+          deviceName: deviceName,
+        );
+        edgeRegistered = true;
+      } catch (edgeError) {
+        debugPrint('Edge register failed, falling back to direct DB write: $edgeError');
+      }
+
+      if (!edgeRegistered) {
+        await _upsertDeviceDirectly(
+          fcmToken: fcmToken,
+          deviceType: deviceType,
+          deviceName: deviceName,
+        );
+      }
 
       final status = await getCurrentDeviceStatus();
       if (!(status['enabled'] as bool? ?? false)) {
-        throw Exception('Device registration was not persisted');
+        throw Exception(
+          'Device registration was not persisted (authorized=${status['authorized']}, token=${status['token'] != null}, active_in_db=${status['active_in_db']})',
+        );
       }
     } on PostgrestException catch (e) {
       debugPrint('Error enabling notifications: ${e.message}');
@@ -152,6 +220,50 @@ class NotificationService {
       debugPrint('Unexpected error enabling notifications: $e');
       throw Exception('Failed to enable notifications: $e');
     }
+  }
+
+  Future<void> _upsertDeviceDirectly({
+    required String fcmToken,
+    required String deviceType,
+    required String deviceName,
+  }) async {
+    final appUserId = await CurrentUserResolver.resolveAppUserId(_supabase);
+    if (appUserId == null) {
+      throw Exception('Unable to resolve app user id for direct device registration');
+    }
+
+    final now = DateTime.now().toIso8601String();
+    final existing = await _supabase
+        .from('user_devices')
+        .select('id')
+        .eq('user_id', appUserId)
+        .eq('fcm_token', fcmToken)
+        .maybeSingle();
+
+    if (existing != null && existing['id'] != null) {
+      await _supabase
+          .from('user_devices')
+          .update({
+            'device_type': deviceType,
+            'device_name': deviceName,
+            'is_active': true,
+            'last_seen_at': now,
+            'updated_at': now,
+          })
+          .eq('id', existing['id']);
+      return;
+    }
+
+    await _supabase.from('user_devices').insert({
+      'user_id': appUserId,
+      'fcm_token': fcmToken,
+      'device_type': deviceType,
+      'device_name': deviceName,
+      'is_active': true,
+      'last_seen_at': now,
+      'created_at': now,
+      'updated_at': now,
+    });
   }
 
   /// Disable notifications for current device
@@ -202,8 +314,7 @@ class NotificationService {
       // Check Firebase permission
       final settings = await FirebaseMessaging.instance
           .getNotificationSettings();
-      final isAuthorized =
-          settings.authorizationStatus == AuthorizationStatus.authorized;
+        final isAuthorized = _isPermissionGranted(settings.authorizationStatus);
 
       // Get current token
       final token = await getFcmToken();

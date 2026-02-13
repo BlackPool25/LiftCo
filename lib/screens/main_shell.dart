@@ -72,15 +72,21 @@ class _MainShellState extends State<MainShell> {
     await prefs.setBool(promptKey, true);
 
     if (shouldEnable == true) {
-      final enabled = await _notificationService
-          .requestPermissionAndEnableCurrentDevice();
+      var enabled = false;
+      String? errorMessage;
+      try {
+        enabled = await _notificationService
+            .requestPermissionAndEnableCurrentDevice();
+      } catch (e) {
+        errorMessage = e.toString();
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             enabled
                 ? 'Notifications enabled successfully'
-                : 'Notification permission not granted',
+                : (errorMessage ?? 'Notification permission not granted'),
           ),
           backgroundColor: enabled ? AppTheme.success : AppTheme.error,
         ),

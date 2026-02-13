@@ -24,7 +24,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late NotificationService _notificationService;
   bool _notificationsEnabled = false;
   bool _isLoading = false;
-  String? _fcmToken;
 
   @override
   void initState() {
@@ -38,7 +37,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final status = await _notificationService.getCurrentDeviceStatus();
       setState(() {
         _notificationsEnabled = status['enabled'] as bool;
-        _fcmToken = status['token'] as String?;
       });
     } catch (e) {
       debugPrint('Failed to check notification status: $e');
@@ -58,29 +56,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       if (value) {
-        final enabled = await _notificationService
-            .requestPermissionAndEnableCurrentDevice();
+        await _notificationService.requestPermissionAndEnableCurrentDevice();
         final status = await _notificationService.getCurrentDeviceStatus();
 
         if (!mounted) return;
 
-        if (!enabled || !(status['enabled'] as bool? ?? false)) {
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Unable to enable notifications on this device. Please check app permissions and try again.',
-              ),
-              backgroundColor: AppTheme.error,
-            ),
+        if (!(status['enabled'] as bool? ?? false)) {
+          throw Exception(
+            'Device registration not active in database after permission and token validation.',
           );
-          return;
         }
 
         if (!mounted) return;
 
         setState(() {
           _notificationsEnabled = true;
-          _fcmToken = status['token'] as String?;
         });
 
         scaffoldMessenger.showSnackBar(
@@ -122,7 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SnackBar(
           content: Text(
             isWebPushAbort
-                ? 'Web push setup failed. Configure web push and try again.'
+                ? 'Web push registration failed. Allow notifications in browser site settings, then reload and try again. Details: $message'
                 : 'Failed to update notifications: $e',
           ),
           backgroundColor: AppTheme.error,
