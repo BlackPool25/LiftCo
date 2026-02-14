@@ -469,8 +469,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
 
       // If we can't resolve the profile yet, keep the user in loading rather than misrouting.
+      if (cached != null && cached.isProfileComplete) {
+        debugPrint('Profile refresh failed, using cached');
+        return;
+      }
       emit(const AuthError('Unable to load profile. Please try again.'));
     } catch (_) {
+      final cached = await _authService.getCachedUserProfile();
+      if (cached != null && cached.isProfileComplete) {
+        debugPrint('Profile refresh threw, using cached');
+        return;
+      }
       emit(const AuthError('Unable to load profile. Please try again.'));
     }
   }

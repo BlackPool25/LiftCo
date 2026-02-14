@@ -154,34 +154,41 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       _isJoining = true;
     });
 
-    try {
-      await _sessionService.joinSession(_session!.id);
+    const maxRetries = 3;
+    for (var attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await _sessionService.joinSession(_session!.id);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Successfully joined the session!'),
-            backgroundColor: AppTheme.success,
-          ),
-        );
-        // Reload session to show updated member list and count
-        await _loadSessionDetails();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Successfully joined the session!'),
+              backgroundColor: AppTheme.success,
+            ),
+          );
+          await _loadSessionDetails();
+        }
+        break;
+      } catch (e) {
+        if (attempt == maxRetries - 1) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(e.toString().replaceAll('Exception: ', '')),
+                backgroundColor: AppTheme.error,
+              ),
+            );
+          }
+        } else {
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: AppTheme.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isJoining = false;
-        });
-      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isJoining = false;
+      });
     }
   }
 
@@ -220,7 +227,16 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     });
 
     try {
-      await _sessionService.leaveSession(_session!.id);
+      const maxRetries = 3;
+      for (var attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          await _sessionService.leaveSession(_session!.id);
+          break;
+        } catch (e) {
+          if (attempt == maxRetries - 1) rethrow;
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
