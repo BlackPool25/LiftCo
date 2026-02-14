@@ -170,6 +170,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Timer? _authStateDebounce;
   StreamSubscription<dynamic>? _authStateSubscription;
 
+  bool _explicitSignOutInProgress = false;
+
   Future<app_user.User?> _fetchProfileWithRetry() async {
     // Short, bounded retries to allow backend auth_id self-heal and network jitter.
     const delays = <Duration>[
@@ -268,7 +270,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // If authenticated but profile isn't resolvable, avoid incorrectly forcing setup.
       emit(const AuthError('Unable to load profile. Please try again.'));
     } catch (e) {
-      emit(Unauthenticated(errorMessage: e.toString()));
+      // Don’t force a logout just because a refresh/profile fetch failed.
+      final cached = await _authService.getCachedUserProfile();
+      if (cached != null && cached.isProfileComplete) {
+        debugPrint('AppStarted refresh failed; keeping cached auth state: $e');
+        return;
+      }
+      emit(const AuthError('Unable to load profile. Please try again.'));
     }
   }
 
@@ -434,6 +442,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
 
     try {
+      _explicitSignOutInProgress = true;
       // Deactivate device before signing out
       await _deactivateDevice();
 
@@ -441,6 +450,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(const Unauthenticated());
     } catch (e) {
       emit(AuthError(e.toString()));
+    } finally {
+      _explicitSignOutInProgress = false;
     }
   }
 
@@ -451,6 +462,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final session = event.authState.session;
 
     if (session == null) {
+      if (_explicitSignOutInProgress) {
+        await _authService.clearCachedProfile();
+        emit(const Unauthenticated());
+        return;
+      }
+
       // Supabase can briefly report a null session during refresh/storage sync.
       // Re-check after a short delay before treating this as a real sign-out.
       await Future.delayed(const Duration(milliseconds: 800));
@@ -465,8 +482,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
 
-      await _authService.clearCachedProfile();
-      emit(const Unauthenticated());
+      // Still null, but this wasn’t an explicit sign-out. Don’t bounce the user
+      // to Login; let Supabase recover and keep the last known-good app state.
+      debugPrint('Auth state reported null session (non-explicit). Holding state.');
       return;
     }
 
