@@ -1024,7 +1024,12 @@ class _HomeTabState extends State<HomeTab> {
         // Female-only mode toggle (for female users only)
         if (_currentUser.gender?.toLowerCase() == 'female') ...[
           const SizedBox(width: 8),
-          SizedBox(width: 172, child: _buildWomenOnlyToggle()),
+          Flexible(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 172),
+              child: _buildWomenOnlyToggle(),
+            ),
+          ),
         ],
       ],
     );
@@ -1360,6 +1365,42 @@ class _HomeTabState extends State<HomeTab> {
                 '${_filteredSessions.length} found',
                 style: TextStyle(color: AppTheme.textMuted, fontSize: 13),
               ),
+            const SizedBox(width: 8),
+            GlassCard(
+              onTap: _isLoadingSessions
+                  ? null
+                  : () async {
+                      setState(() {
+                        _isLoadingSessions = true;
+                        _sessionsError = null;
+                      });
+                      try {
+                        await _reloadSessionsFromServer();
+                      } finally {
+                        if (mounted) {
+                          setState(() {
+                            _isLoadingSessions = false;
+                          });
+                        }
+                      }
+                    },
+              padding: const EdgeInsets.all(10),
+              borderRadius: 14,
+              child: _isLoadingSessions
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppTheme.primaryPurple,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.refresh,
+                      size: 18,
+                      color: AppTheme.textSecondary,
+                    ),
+            ),
             const SizedBox(width: 8),
             GestureDetector(
               onTap: _showFilterDialog,

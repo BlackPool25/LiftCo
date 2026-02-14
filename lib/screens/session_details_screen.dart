@@ -22,10 +22,11 @@ class SessionDetailsScreen extends StatefulWidget {
 class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   late SessionService _sessionService;
   WorkoutSession? _session;
-  final bool _isLoading = false;
   bool _isJoining = false;
+  bool _isRefreshing = false;
   String? _currentUserId;
   bool _isUserJoined = false;
+  bool _membershipChecked = false;
 
   // Realtime subscription for this specific session
   StreamSubscription<WorkoutSession?>? _sessionSubscription;
@@ -36,8 +37,18 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     super.initState();
     _sessionService = SessionService(Supabase.instance.client);
     _session = widget.session;
-    _getCurrentUser();
-    _loadSessionDetails();
+    _initializeScreen();
+  }
+
+  Future<void> _initializeScreen() async {
+    await _getCurrentUser();
+    await _loadSessionDetails();
+
+    if (!mounted) return;
+    setState(() {
+      _membershipChecked = true;
+    });
+
     _subscribeToSession();
     _subscribeToMembers();
   }
@@ -445,14 +456,8 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       body: Container(
         decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
         child: SafeArea(
-          child: _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    color: AppTheme.primaryPurple,
-                  ),
-                )
-              : CustomScrollView(
-                  slivers: [
+          child: CustomScrollView(
+            slivers: [
                     // App bar
                     SliverToBoxAdapter(child: _buildAppBar()),
 
@@ -518,7 +523,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
 
                     const SliverToBoxAdapter(child: SizedBox(height: 100)),
                   ],
-                ),
+          ),
         ),
       ),
       bottomNavigationBar: _buildBottomBar(),
@@ -546,6 +551,41 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
               'Session Details',
               style: Theme.of(context).textTheme.titleLarge,
             ),
+          ),
+          GlassCard(
+            onTap: _isRefreshing
+                ? null
+                : () async {
+                    setState(() {
+                      _isRefreshing = true;
+                    });
+                    try {
+                      await _loadSessionDetails();
+                      await _getCurrentUser();
+                    } finally {
+                      if (mounted) {
+                        setState(() {
+                          _isRefreshing = false;
+                        });
+                      }
+                    }
+                  },
+            padding: const EdgeInsets.all(12),
+            borderRadius: 14,
+            child: _isRefreshing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppTheme.primaryPurple,
+                    ),
+                  )
+                : const Icon(
+                    Icons.refresh,
+                    color: AppTheme.textPrimary,
+                    size: 20,
+                  ),
           ),
         ],
       ),
@@ -610,6 +650,30 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
             _session?.title ?? 'Untitled Session',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
+
+          // Joined indicator (shown near the top of the session)
+          if (_isUserJoined) ...[
+            const SizedBox(height: 12),
+            GlassCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              borderRadius: 16,
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle, color: AppTheme.success, size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'You\'ve Joined',
+                    style: TextStyle(
+                      color: AppTheme.success,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           // Description
           if (_session?.description != null &&
@@ -984,6 +1048,32 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   }
 
   Widget? _buildBottomBar() {
+    if (!_membershipChecked) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          border: Border(top: BorderSide(color: AppTheme.surfaceBorder)),
+        ),
+        child: SafeArea(
+          child: GlassCard(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            borderRadius: 16,
+            child: const Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppTheme.primaryPurple,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     // Host can cancel session
     if (_canCancel) {
       return Container(
@@ -1059,53 +1149,25 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           border: Border(top: BorderSide(color: AppTheme.surfaceBorder)),
         ),
         child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              GlassCard(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 16,
-                  horizontal: 24,
+          child: GlassCard(
+            onTap: _leaveSession,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            borderRadius: 18,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.exit_to_app, color: AppTheme.error, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Leave Session',
+                  style: TextStyle(
+                    color: AppTheme.error,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                borderRadius: 16,
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.check_circle, color: AppTheme.success, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'You\'ve Joined',
-                      style: TextStyle(
-                        color: AppTheme.success,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              GlassCard(
-                onTap: _leaveSession,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                borderRadius: 16,
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.exit_to_app, color: AppTheme.error, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'Leave Session',
-                      style: TextStyle(
-                        color: AppTheme.error,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );

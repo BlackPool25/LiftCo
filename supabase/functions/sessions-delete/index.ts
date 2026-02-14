@@ -1,6 +1,56 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+type AuthUser = {
+  id: string;
+  email?: string | null;
+  phone?: string | null;
+};
+
+async function resolveProfileByAuthOrContact(
+  serviceClient: ReturnType<typeof createClient>,
+  user: AuthUser,
+  selectColumns: string,
+) {
+  const { data: byAuthId } = await serviceClient
+    .from("users")
+    .select(selectColumns)
+    .eq("auth_id", user.id)
+    .maybeSingle();
+  if (byAuthId) return byAuthId;
+
+  let byContact: any = null;
+  if (user.email) {
+    const { data } = await serviceClient
+      .from("users")
+      .select(selectColumns)
+      .eq("email", user.email)
+      .maybeSingle();
+    byContact = data;
+  }
+
+  if (!byContact && user.phone) {
+    const { data } = await serviceClient
+      .from("users")
+      .select(selectColumns)
+      .eq("phone_number", user.phone)
+      .maybeSingle();
+    byContact = data;
+  }
+
+  if (!byContact) return null;
+
+  if (byContact.auth_id !== user.id) {
+    await serviceClient
+      .from("users")
+      .update({ auth_id: user.id, updated_at: new Date().toISOString() })
+      .eq("id", byContact.id);
+    byContact.auth_id = user.id;
+  }
+
+  return byContact;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -137,11 +187,11 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: userProfile } = await serviceClient
-      .from("users")
-      .select("id")
-      .eq("auth_id", user.id)
-      .maybeSingle();
+    const userProfile = await resolveProfileByAuthOrContact(
+      serviceClient,
+      user,
+      "id, auth_id",
+    );
 
     if (!userProfile) {
       return new Response(JSON.stringify({ error: "User profile not found" }), {

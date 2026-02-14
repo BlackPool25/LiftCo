@@ -90,10 +90,36 @@ class _GymsScreenState extends State<GymsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Explore Gyms',
-              style: Theme.of(context).textTheme.headlineLarge,
-            ).animate().fadeIn().slideY(begin: -0.2),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Explore Gyms',
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ).animate().fadeIn().slideY(begin: -0.2),
+                ),
+                const SizedBox(width: 12),
+                GlassCard(
+                  onTap: _isLoading ? null : _loadGyms,
+                  padding: const EdgeInsets.all(12),
+                  borderRadius: 14,
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppTheme.primaryPurple,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.refresh,
+                          color: AppTheme.textPrimary,
+                          size: 20,
+                        ),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             Text(
               'Find sessions at gyms near you',

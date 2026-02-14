@@ -115,10 +115,15 @@ class SupabaseService {
         }
 
         final data = decodedData;
-        final errorMessage = data is Map<String, dynamic>
-            ? (data['error']?.toString() ?? 'Request failed')
-            : 'Request failed';
-        throw Exception(errorMessage);
+        if (data is Map<String, dynamic>) {
+          final base = data['error']?.toString() ?? 'Request failed';
+          final details = data['details']?.toString();
+          final message = (details != null && details.isNotEmpty)
+              ? '$base ($details)'
+              : base;
+          throw Exception(message);
+        }
+        throw Exception('Request failed');
       }
 
       final data = decodedData;

@@ -141,9 +141,34 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const Spacer(),
+                      GlassCard(
+                        onTap: _isLoading ? null : _loadSessions,
+                        padding: const EdgeInsets.all(10),
+                        borderRadius: 14,
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppTheme.primaryPurple,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.refresh,
+                                size: 18,
+                                color: AppTheme.textSecondary,
+                              ),
+                      ),
+                      const SizedBox(width: 8),
                       // Female-only mode toggle
                       if (_currentUserGender?.toLowerCase() == 'female') ...[
-                        SizedBox(width: 172, child: _buildWomenOnlyToggle()),
+                        Flexible(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 172),
+                            child: _buildWomenOnlyToggle(),
+                          ),
+                        ),
                         const SizedBox(width: 8),
                       ],
                       if (_filteredSessions.isNotEmpty)

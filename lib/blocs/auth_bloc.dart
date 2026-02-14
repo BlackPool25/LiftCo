@@ -165,6 +165,22 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   final DeviceService? _deviceService;
 
+  Future<app_user.User?> _fetchProfileWithRetry() async {
+    // Short, bounded retries to allow backend auth_id self-heal and network jitter.
+    const delays = <Duration>[
+      Duration(milliseconds: 250),
+      Duration(milliseconds: 500),
+      Duration(milliseconds: 800),
+    ];
+
+    for (var attempt = 0; attempt < delays.length; attempt++) {
+      final user = await _authService.fetchUserProfileFromServer();
+      if (user != null) return user;
+      await Future.delayed(delays[attempt]);
+    }
+    return null;
+  }
+
   Future<void> _registerDeviceSilently() async {
     if (_deviceService == null) return;
     try {
@@ -197,32 +213,45 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> _onAppStarted(AppStarted event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
 
+    if (!_authService.isAuthenticated) {
+      emit(const Unauthenticated());
+      return;
+    }
+
     try {
-      if (_authService.isAuthenticated) {
-        final user = await _authService.getUserProfile();
-        if (user != null) {
-          if (user.isProfileComplete) {
-            emit(Authenticated(user));
-            await _registerDeviceSilently();
-          } else {
-            emit(
-              NeedsProfileCompletion(
-                email: user.email,
-                phone: user.phoneNumber,
-              ),
-            );
-          }
+      // Cache-first: if we *know* the profile is complete, avoid showing setup on cold start.
+      final cached = await _authService.getCachedUserProfile();
+      if (cached != null && cached.isProfileComplete) {
+        emit(Authenticated(cached));
+        await _registerDeviceSilently();
+      }
+
+      // Keep cache in sync: do a server refresh after a short delay.
+      await Future.delayed(const Duration(milliseconds: 350));
+      final fresh = await _fetchProfileWithRetry();
+
+      if (fresh != null) {
+        if (fresh.isProfileComplete) {
+          emit(Authenticated(fresh));
+          await _registerDeviceSilently();
         } else {
           emit(
             NeedsProfileCompletion(
-              email: _authService.currentAuthUser?.email,
-              phone: _authService.currentAuthUser?.phone,
+              email: fresh.email,
+              phone: fresh.phoneNumber,
             ),
           );
         }
-      } else {
-        emit(const Unauthenticated());
+        return;
       }
+
+      // No fresh profile. If we had a cached complete profile, keep user in the app.
+      if (cached != null && cached.isProfileComplete) {
+        return;
+      }
+
+      // If authenticated but profile isn't resolvable, avoid incorrectly forcing setup.
+      emit(const AuthError('Unable to load profile. Please try again.'));
     } catch (e) {
       emit(Unauthenticated(errorMessage: e.toString()));
     }
@@ -407,41 +436,42 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final session = event.authState.session;
 
     if (session == null) {
+      await _authService.clearCachedProfile();
       emit(const Unauthenticated());
       return;
     }
 
-    // For OAuth, check if user profile exists
+    // Auth changed (sign-in/refresh). Prefer cached profile for this auth user,
+    // then refresh from server to avoid transient "profile not found" races.
     try {
-      final exists = await _authService.checkUserExists();
-      if (exists) {
-        final user = await _authService.getUserProfile();
-        if (user != null && user.isProfileComplete) {
-          emit(Authenticated(user));
-          await _registerDeviceSilently();
-        } else {
-          emit(
-            NeedsProfileCompletion(
-              email: session.user.email,
-              phone: session.user.phone,
-            ),
-          );
-        }
-      } else {
+      final cached = await _authService.getCachedUserProfile();
+      if (cached != null && cached.isProfileComplete) {
+        emit(Authenticated(cached));
+        await _registerDeviceSilently();
+      }
+
+      final fresh = await _fetchProfileWithRetry();
+      if (fresh != null && fresh.isProfileComplete) {
+        emit(Authenticated(fresh));
+        await _registerDeviceSilently();
+        return;
+      }
+
+      // If profile exists but incomplete, route to completion.
+      if (fresh != null) {
         emit(
           NeedsProfileCompletion(
-            email: session.user.email,
-            phone: session.user.phone,
+            email: fresh.email ?? session.user.email,
+            phone: fresh.phoneNumber ?? session.user.phone,
           ),
         );
+        return;
       }
-    } catch (e) {
-      emit(
-        NeedsProfileCompletion(
-          email: session.user.email,
-          phone: session.user.phone,
-        ),
-      );
+
+      // If we can't resolve the profile yet, keep the user in loading rather than misrouting.
+      emit(const AuthError('Unable to load profile. Please try again.'));
+    } catch (_) {
+      emit(const AuthError('Unable to load profile. Please try again.'));
     }
   }
 }
