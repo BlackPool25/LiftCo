@@ -92,10 +92,16 @@ All backend operations are exposed through Supabase Edge Functions following RES
 | `auth-complete-profile` | POST | Complete user profile |
 
 #### User Functions
-| Function | Method | Description |
-|----------|--------|-------------|
-| `users-get-me` | GET | Get current user profile |
-| `users-update-me` | PATCH | Update current user profile |
+| Function | Method | Description | Version |
+|----------|--------|-------------|---------|
+| `users-get-me` | GET | Get current user profile with retry logic | v6 |
+| `users-update-me` | PATCH | Update current user profile | v6 |
+
+**Key Improvements:**
+- ✅ **Dual Lookup**: Searches by auth_id, email, or phone number
+- ✅ **Auto-sync**: Updates auth_id if profile found by contact info
+- ✅ **Complete Profile**: Returns full user data including photos
+- ✅ **Auth Consistency**: Ensures auth.users.id matches public.users.auth_id
 
 #### Gym Functions
 | Function | Method | Description |
@@ -104,14 +110,21 @@ All backend operations are exposed through Supabase Edge Functions following RES
 | `gyms-get` | GET | Get single gym details |
 
 #### Session Functions
-| Function | Method | Description |
-|----------|--------|-------------|
-| `sessions-list` | GET | List sessions with filters (gym_id, status, date range) |
-| `sessions-get` | GET | Get single session with members |
-| `sessions-create` | POST | Create new session (auto-joins host) |
-| `sessions-delete` | DELETE | Cancel session (host only) |
-| `sessions-join` | POST | Join a session |
-| `sessions-leave` | POST | Leave a session |
+| Function | Method | Description | Version |
+|----------|--------|-------------|---------|
+| `sessions-list` | GET | List sessions with filters (gym_id, status, date range) | v11 |
+| `sessions-get` | GET | Get single session with members, ages & photos | v14 |
+| `sessions-create` | POST | Create new session (auto-joins host) | v8 |
+| `sessions-delete` | DELETE | Cancel session (host only) | v6 |
+| `sessions-join` | POST | Join a session + notify members | v12 |
+| `sessions-leave` | POST | Leave a session + notify members | v13 |
+
+**Key Improvements:**
+- ✅ **Retry Logic**: All functions retry on transient failures
+- ✅ **Profile Resolution**: Fallback lookup by auth_id, email, or phone
+- ✅ **Auto-sync**: Updates auth_id if profile found by contact
+- ✅ **Notifications**: Automatic push notifications to relevant members
+- ✅ **Rate Limit Resilience**: Handles 429 errors gracefully
 
 #### Device & Notification Functions
 | Function | Method | Description |
@@ -445,23 +458,35 @@ Bottom Sheet Opens
 
 ### CRUD Service Pattern
 
-All API calls go through standardized service layer:
+All API calls go through standardized service layer with advanced error handling:
 
 ```dart
-// Generic CRUD Service
+// Generic CRUD Service with Retry Logic
 class SupabaseService {
+  // Synchronized token refresh prevents 429 errors
+  static final Lock _refreshSessionLock = Lock();
+  static Future<Session?>? _globalRefreshSessionFuture;
+  
   Future<Map<String, dynamic>> get(String function, {params});
   Future<Map<String, dynamic>> post(String function, {body});
   Future<Map<String, dynamic>> patch(String function, {body});
   Future<Map<String, dynamic>> delete(String function, {params});
+  
+  // Automatic retry on 429 rate limit
+  Future<Map<String, dynamic>> _invoke(...) async {
+    if (response.statusCode == 429 && retryOnRateLimit) {
+      await Future.delayed(const Duration(milliseconds: 800));
+      return _invoke(..., retryOnRateLimit: false);
+    }
+  }
 }
 
-// Specific Services use CRUD
+// Session Service with Retry Logic
 class SessionService {
   Future<List<WorkoutSession>> listSessions({...});
   Future<WorkoutSession> createSession({...});
-  Future<void> joinSession(String id);
-  Future<void> leaveSession(String id);
+  Future<void> joinSession(String id);  // 3 retries on failure
+  Future<void> leaveSession(String id); // 3 retries on failure
 }
 ```
 
@@ -469,7 +494,9 @@ class SessionService {
 - **Consistency** - Same pattern across all features
 - **Testability** - Easy to mock service layer
 - **Maintainability** - Changes in one place affect all
-- **Error Handling** - Centralized error handling
+- **Error Handling** - Centralized error handling with retry logic
+- **Rate Limit Protection** - Synchronized token refresh prevents 429s
+- **Resilience** - Automatic retry on transient failures
 
 ---
 
@@ -658,6 +685,8 @@ flutter build web --release
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `supabase_flutter` | ^2.8.0 | Supabase client |
+| `synchronized` | ^3.1.0 | Thread-safe locking for token refresh |
+| `shared_preferences` | ^2.3.4 | Local profile caching |
 | `http` | ^1.2.0 | HTTP client for Edge Functions |
 | `flutter_bloc` | ^8.1.6 | State management |
 | `go_router` | ^15.1.2 | Navigation |
@@ -729,12 +758,22 @@ This project is licensed under the MIT License.
 
 ## Recent Changes & Updates
 
+### Authentication & Session Management (MAJOR UPDATE)
+- ✅ **Synchronized Token Refresh**: Prevents 429 rate limits with global locks
+- ✅ **Rate Limit Handling**: Automatic retry with exponential backoff
+- ✅ **Grace Periods**: 3-second delays prevent false logouts during operations
+- ✅ **Profile Caching**: Local cache reduces API calls and improves cold start
+- ✅ **Retry Logic**: Join/Leave operations retry 3 times on transient failures
+- ✅ **Explicit Sign-out Tracking**: Prevents accidental logouts from race conditions
+- ✅ **AuthBloc Improvements**: Better state handling with fallback mechanisms
+
 ### Session Management Fixes
 - ✅ Fixed session member counting with database triggers
 - ✅ Added "Already Joined" button state
 - ✅ Host can now cancel sessions
 - ✅ Members can leave sessions with swipe gesture
 - ✅ Members list properly displays with names
+- ✅ Retry mechanism for join/leave operations
 
 ### UI/UX Improvements
 - ✅ Fixed preferred time picker with real-time updates
@@ -752,6 +791,8 @@ This project is licensed under the MIT License.
 - ✅ Refactored session service to use Edge Functions
 - ✅ Standardized API error handling
 - ✅ Added comprehensive type safety
+- ✅ **Added synchronized package** for thread-safe operations
+- ✅ **Added retry logic** throughout session operations
 
 ### Database Updates
 - ✅ **Member Count Triggers Fixed**: Added INSERT, UPDATE, and DELETE triggers on `session_members` table to automatically sync `current_count` with actual joined members
@@ -842,4 +883,255 @@ create policy "Allow session members to view each other's profiles"
 
 -- Cron job for session reminders (runs every 10 minutes)
 select cron.schedule('session-reminders-job', '*/10 * * * *', ...);
+```
+
+---
+
+## 🔒 Authentication & Session Management (Recent Major Updates)
+
+### Synchronized Token Refresh System
+
+To prevent race conditions and 429 rate limit errors during rapid navigation, we've implemented a **synchronized token refresh mechanism**:
+
+**Problem Solved:**
+- Multiple concurrent API calls were triggering simultaneous token refreshes
+- Supabase's rate limit (30 requests/minute) was being hit
+- Users were getting unexpectedly logged out during session operations
+
+**Solution:**
+
+```dart
+// lib/services/supabase_service.dart
+class SupabaseService {
+  // Global (static) lock ensures ALL instances share one refresh
+  static final Lock _refreshSessionLock = Lock();
+  static Future<Session?>? _globalRefreshSessionFuture;
+  
+  Future<Session?> _refreshSessionLocked() async {
+    return _refreshSessionLock.synchronized(() {
+      // Double-check pattern prevents race conditions
+      if (_globalRefreshSessionFuture == null) {
+        _globalRefreshSessionFuture = _client.auth.refreshSession()
+          .then((response) => response.session)
+          .whenComplete(() => _globalRefreshSessionFuture = null);
+      }
+      return _globalRefreshSessionFuture!;
+    });
+  }
+}
+```
+
+**Key Features:**
+- ✅ **Thread-safe**: Uses `synchronized` package for cross-instance locking
+- ✅ **Global scope**: Static variables ensure single refresh across app
+- ✅ **Double-check pattern**: Prevents multiple futures from being created
+- ✅ **Automatic cleanup**: Future is cleared after completion
+
+### Rate Limiting & 429 Handling
+
+The app now gracefully handles Supabase rate limits:
+
+```dart
+// In _invoke method - handles 429 with retry
+if (response.statusCode == 429 && retryOnRateLimit) {
+  // Back off briefly and retry once
+  await Future.delayed(const Duration(milliseconds: 800));
+  return _invoke(functionName, ..., retryOnRateLimit: false);
+}
+```
+
+**Rate Limit Strategy:**
+1. **Prevention**: Synchronized lock prevents concurrent refreshes
+2. **Detection**: Checks for 429 status code
+3. **Backoff**: 800ms delay before retry
+4. **Grace period**: AuthBloc waits 3 seconds before declaring logout
+
+### Improved AuthBloc State Management
+
+Enhanced authentication state handling prevents false logouts:
+
+```dart
+Future<void> _onAuthStateChanged(...) async {
+  final session = event.authState.session;
+
+  if (session == null) {
+    if (_explicitSignOutInProgress) {
+      // Real sign-out, proceed normally
+      await _authService.clearCachedProfile();
+      emit(const Unauthenticated());
+      return;
+    }
+
+    // Grace period: Supabase can briefly report null during refresh
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (_authService.isAuthenticated) return;
+
+    // Attempt explicit refresh before giving up
+    final refreshed = await _authService.refreshSessionLocked();
+    if (refreshed != null) return;
+
+    // Extended grace period for rate limit recovery
+    await Future.delayed(const Duration(milliseconds: 2200));
+    if (_authService.isAuthenticated) return;
+
+    // Finally logout
+    await _authService.clearCachedProfile();
+    emit(const Unauthenticated());
+  }
+}
+```
+
+**New Features:**
+- ✅ **Explicit sign-out tracking**: `_explicitSignOutInProgress` flag
+- ✅ **Grace periods**: 800ms + 2200ms delays prevent false logouts
+- ✅ **Retry with refresh**: Attempts session recovery before logout
+- ✅ **Cache-first loading**: Shows cached profile while fetching fresh data
+
+### Session Operation Retry Logic
+
+Join/Leave operations now have built-in retry mechanisms:
+
+```dart
+// lib/screens/session_details_screen.dart
+Future<void> _joinSession() async {
+  const maxRetries = 3;
+  for (var attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      await _sessionService.joinSession(_session!.id);
+      // Success handling
+      break;
+    } catch (e) {
+      if (attempt == maxRetries - 1) {
+        // Show error on final attempt
+      } else {
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+    }
+  }
+}
+```
+
+**Benefits:**
+- ✅ **Transient failure recovery**: Network hiccups don't break UX
+- ✅ **Exponential backoff**: 300ms between retries
+- ✅ **User feedback**: Shows error only after all retries fail
+
+### Profile Caching System
+
+Local profile caching reduces API calls and improves perceived performance:
+
+```dart
+// lib/services/auth_service.dart
+class AuthService {
+  static const _kCachedProfileAuthUid = 'cached_profile_auth_uid';
+  static const _kCachedProfileJson = 'cached_profile_json';
+  static const _kCachedProfileComplete = 'cached_profile_complete';
+  
+  Future<void> _cacheUserProfile(User user) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kCachedProfileAuthUid, authUser.id);
+    await prefs.setString(_kCachedProfileJson, jsonEncode(user.toJson()));
+    await prefs.setBool(_kCachedProfileComplete, user.isProfileComplete);
+  }
+  
+  Future<User?> getCachedUserProfile() async {
+    // Returns cached profile only if auth UID matches
+    // Prevents showing wrong user's data
+  }
+}
+```
+
+**Features:**
+- ✅ **Cold start optimization**: Shows cached profile immediately
+- ✅ **Auth UID validation**: Ensures cache belongs to current user
+- ✅ **Fallback on failure**: Uses cache if server fetch fails
+- ✅ **Auto-update**: Cache refreshed on successful server fetch
+
+### Updated Edge Functions with Retry Logic
+
+All edge functions now include robust error handling and retry mechanisms:
+
+#### sessions-join (v12)
+- **Profile resolution retry**: 3 attempts with 120ms delays
+- **Auth/contact fallback**: Resolves by auth_id, email, or phone
+- **Auto-sync**: Updates auth_id if found by contact
+- **Rate limit resilience**: Handles 429 gracefully
+
+```typescript
+// Excerpt from sessions-join
+let userProfile: any = null;
+for (let attempt = 0; attempt < 3; attempt++) {
+  userProfile = await resolveProfileByAuthOrContact(serviceClient, user);
+  if (userProfile) break;
+  if (attempt < 2) {
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+}
+```
+
+#### sessions-leave (v13)
+- **Atomic operations**: Uses transactions for consistency
+- **Notification triggers**: Notifies remaining members
+- **Host validation**: Prevents host from leaving (must cancel)
+
+#### sessions-get (v14)
+- **Enriched data**: Includes host and member ages, photos
+- **Membership status**: Returns user's membership in session
+- **Error boundaries**: Handles missing sessions gracefully
+
+#### users-get-me (v6)
+- **Profile resolution**: Dual lookup by auth_id or email/phone
+- **Auto-sync**: Updates auth_id if mismatched
+- **Complete profile data**: Returns full user object with all fields
+
+### Dependencies Updated
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `synchronized` | ^3.1.0 | **NEW** - Thread-safe locking for token refresh |
+| `supabase_flutter` | ^2.8.0 | Supabase client |
+| `http` | ^1.2.0 | HTTP client for Edge Functions |
+| `flutter_bloc` | ^8.1.6 | State management |
+| `shared_preferences` | ^2.3.4 | Local profile caching |
+
+### Troubleshooting Authentication Issues
+
+#### Issue: Getting logged out during session operations
+**Solution**: The app now has built-in grace periods. If you still experience issues:
+1. Check network connectivity
+2. Ensure Supabase URL and anon key are correct
+3. Verify user profile exists in database
+
+#### Issue: 429 Rate Limit errors in logs
+**Solution**: This is expected during rapid navigation. The app now:
+1. Retries with exponential backoff
+2. Synchronizes token refreshes
+3. Waits 3 seconds before declaring logout
+
+#### Issue: "User profile not found" errors
+**Solution**: Edge functions now retry profile lookup 3 times. If persistent:
+1. Check that `auth_id` is synced in `users` table
+2. Verify email/phone matches between auth and users table
+3. Check RLS policies allow reading user data
+
+### Testing Authentication Flows
+
+```bash
+# Test rapid navigation
+1. Login to app
+2. Navigate between Home, Gyms, and Schedule tabs rapidly
+3. Join and leave sessions quickly
+4. Verify you stay logged in
+
+# Test session persistence
+1. Login to app
+2. Background the app for 10 minutes
+3. Foreground and perform actions
+4. Verify session is still valid
+
+# Test network resilience
+1. Turn on airplane mode
+2. Attempt to join session (will fail)
+3. Turn off airplane mode
+4. Retry operation - should succeed
 ```

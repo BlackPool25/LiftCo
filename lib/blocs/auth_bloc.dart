@@ -475,6 +475,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
 
+      // Attempt an explicit refresh (locked) before giving up. This avoids
+      // getting stuck in an Authenticated UI state with no usable token.
+      final refreshed = await _authService.refreshSessionLocked();
+      if (refreshed != null) {
+        return;
+      }
+
       // If we hit rate limiting during refresh, recovery can take a bit longer.
       // Give it a little more time before forcing logout.
       await Future.delayed(const Duration(milliseconds: 2200));
@@ -482,9 +489,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
 
-      // Still null, but this wasn’t an explicit sign-out. Don’t bounce the user
-      // to Login; let Supabase recover and keep the last known-good app state.
-      debugPrint('Auth state reported null session (non-explicit). Holding state.');
+      await _authService.clearCachedProfile();
+      emit(const Unauthenticated(errorMessage: 'Session expired. Please sign in again.'));
       return;
     }
 

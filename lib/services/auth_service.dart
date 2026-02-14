@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthException;
+import 'package:synchronized/synchronized.dart';
 import 'supabase_service.dart';
 import '../models/user.dart' as app_user;
 
@@ -19,12 +20,31 @@ class AuthException implements Exception {
 class AuthService {
   final SupabaseClient _supabase;
 
+  static final Lock _refreshSessionLock = Lock();
+  static Future<Session?>? _refreshSessionFuture;
+
   static const _kCachedProfileAuthUid = 'cached_profile_auth_uid';
   static const _kCachedProfileJson = 'cached_profile_json';
   static const _kCachedProfileComplete = 'cached_profile_complete';
   static const _kCachedProfileUpdatedAt = 'cached_profile_updated_at';
 
   AuthService(this._supabase);
+
+  Future<Session?> refreshSessionLocked() {
+    return _refreshSessionLock.synchronized(() {
+      _refreshSessionFuture ??= _supabase.auth
+          .refreshSession()
+          .then((response) => response.session)
+          .catchError((e, _) {
+            debugPrint('Auth refreshSession failed: $e');
+            return null;
+          })
+          .whenComplete(() {
+            _refreshSessionFuture = null;
+          });
+      return _refreshSessionFuture!;
+    });
+  }
 
   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
 

@@ -54,17 +54,28 @@ class SupabaseService {
   }) async {
     try {
       Session? session = _client.auth.currentSession;
+      if (session == null) {
+        // On web/restore, currentSession can become available a moment later.
+        await Future.delayed(const Duration(milliseconds: 150));
+        session = _client.auth.currentSession;
+      }
       session ??= await _refreshSessionLocked();
 
-      final accessToken = session?.accessToken;
+      var accessToken = session?.accessToken;
+      if (accessToken == null || accessToken.isEmpty) {
+        // One last chance: session can rehydrate shortly after a failed refresh.
+        await Future.delayed(const Duration(milliseconds: 300));
+        accessToken = _client.auth.currentSession?.accessToken;
+      }
+      if (accessToken == null || accessToken.isEmpty) {
+        throw const AuthException('Not authenticated. Please sign in again.');
+      }
       final anonKey = dotenv.env['SUPABASE_ANON_KEY']?.trim();
       final headers = <String, String>{};
       if (anonKey != null && anonKey.isNotEmpty) {
         headers['apikey'] = anonKey;
       }
-      if (accessToken != null && accessToken.isNotEmpty) {
-        headers['Authorization'] = 'Bearer $accessToken';
-      }
+      headers['Authorization'] = 'Bearer $accessToken';
 
       final baseUrl = dotenv.env['SUPABASE_URL']?.trim();
       if (baseUrl == null || baseUrl.isEmpty) {
