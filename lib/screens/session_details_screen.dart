@@ -1099,58 +1099,25 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           border: Border(top: BorderSide(color: AppTheme.surfaceBorder)),
         ),
         child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_isUserJoined)
-                GlassCard(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 16,
-                    horizontal: 24,
-                  ),
-                  borderRadius: 16,
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.check_circle,
-                        color: AppTheme.success,
-                        size: 20,
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        'You\'ve Joined',
-                        style: TextStyle(
-                          color: AppTheme.success,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+          child: GlassCard(
+            onTap: _cancelSession,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            borderRadius: 18,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.cancel, color: AppTheme.error, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Cancel Session',
+                  style: TextStyle(
+                    color: AppTheme.error,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              if (_isUserJoined) const SizedBox(height: 12),
-              GlassCard(
-                onTap: _cancelSession,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                borderRadius: 16,
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.cancel, color: AppTheme.error, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'Cancel Session',
-                      style: TextStyle(
-                        color: AppTheme.error,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );

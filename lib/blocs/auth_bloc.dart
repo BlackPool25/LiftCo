@@ -1,4 +1,6 @@
 // lib/blocs/auth_bloc.dart
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
@@ -165,6 +167,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
   final DeviceService? _deviceService;
 
+  Timer? _authStateDebounce;
+  StreamSubscription<dynamic>? _authStateSubscription;
+
   Future<app_user.User?> _fetchProfileWithRetry() async {
     // Short, bounded retries to allow backend auth_id self-heal and network jitter.
     const delays = <Duration>[
@@ -205,9 +210,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<SupabaseAuthStateChanged>(_onAuthStateChanged);
 
     // Listen to auth state changes
-    _authService.authStateChanges.listen((authState) {
-      add(SupabaseAuthStateChanged(authState));
+    _authStateSubscription = _authService.authStateChanges.listen((authState) {
+      _authStateDebounce?.cancel();
+      _authStateDebounce = Timer(const Duration(milliseconds: 500), () {
+        add(SupabaseAuthStateChanged(authState));
+      });
     });
+  }
+
+  @override
+  Future<void> close() async {
+    _authStateDebounce?.cancel();
+    await _authStateSubscription?.cancel();
+    return super.close();
   }
 
   Future<void> _onAppStarted(AppStarted event, Emitter<AuthState> emit) async {
@@ -436,6 +451,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final session = event.authState.session;
 
     if (session == null) {
+      // Supabase can briefly report a null session during refresh/storage sync.
+      // Re-check after a short delay before treating this as a real sign-out.
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (_authService.isAuthenticated) {
+        return;
+      }
+
       await _authService.clearCachedProfile();
       emit(const Unauthenticated());
       return;

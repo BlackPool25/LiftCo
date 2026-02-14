@@ -5,13 +5,36 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:synchronized/synchronized.dart';
 
 /// Generic CRUD service using Supabase Edge Functions
 /// Provides a standard interface for all database operations
 class SupabaseService {
   final SupabaseClient _client;
 
+  // Global (static) lock/future so *all* SupabaseService instances share a
+  // single in-flight refresh and avoid refresh storms (429 rate limits).
+  static final Lock _refreshSessionLock = Lock();
+  static Future<Session?>? _globalRefreshSessionFuture;
+
   SupabaseService(this._client);
+
+  Future<Session?> _refreshSessionLocked() async {
+    return _refreshSessionLock.synchronized(() {
+      _globalRefreshSessionFuture ??= _client.auth
+          .refreshSession()
+          .then((response) => response.session)
+          .catchError((e, _) {
+            debugPrint('refreshSession failed: $e');
+            return null;
+          })
+          .whenComplete(() {
+            _globalRefreshSessionFuture = null;
+          });
+
+      return _globalRefreshSessionFuture!;
+    });
+  }
 
   String _encodeParams(Map<String, dynamic> params) {
     return params.entries
@@ -30,10 +53,7 @@ class SupabaseService {
   }) async {
     try {
       Session? session = _client.auth.currentSession;
-      if (session == null) {
-        final refreshed = await _client.auth.refreshSession();
-        session = refreshed.session;
-      }
+      session ??= await _refreshSessionLocked();
 
       final accessToken = session?.accessToken;
       final anonKey = dotenv.env['SUPABASE_ANON_KEY']?.trim();
@@ -103,8 +123,8 @@ class SupabaseService {
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (response.statusCode == 401 && retryOnUnauthorized) {
-          final refreshed = await _client.auth.refreshSession();
-          if (refreshed.session != null) {
+          final refreshedSession = await _refreshSessionLocked();
+          if (refreshedSession != null) {
             return _invoke(
               functionName,
               method: method,
