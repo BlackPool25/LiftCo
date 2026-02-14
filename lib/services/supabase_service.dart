@@ -50,6 +50,7 @@ class SupabaseService {
     HttpMethod method = HttpMethod.post,
     dynamic body,
     bool retryOnUnauthorized = true,
+    bool retryOnRateLimit = true,
   }) async {
     try {
       Session? session = _client.auth.currentSession;
@@ -122,6 +123,19 @@ class SupabaseService {
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode == 429 && retryOnRateLimit) {
+          // Back off briefly and retry once to avoid cascading failures during
+          // rapid navigation / refresh storms.
+          await Future.delayed(const Duration(milliseconds: 800));
+          return _invoke(
+            functionName,
+            method: method,
+            body: body,
+            retryOnUnauthorized: retryOnUnauthorized,
+            retryOnRateLimit: false,
+          );
+        }
+
         if (response.statusCode == 401 && retryOnUnauthorized) {
           final refreshedSession = await _refreshSessionLocked();
           if (refreshedSession != null) {
@@ -130,6 +144,7 @@ class SupabaseService {
               method: method,
               body: body,
               retryOnUnauthorized: false,
+              retryOnRateLimit: retryOnRateLimit,
             );
           }
         }

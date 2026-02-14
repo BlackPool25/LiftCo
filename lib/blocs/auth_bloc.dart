@@ -458,6 +458,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
 
+      // If we hit rate limiting during refresh, recovery can take a bit longer.
+      // Give it a little more time before forcing logout.
+      await Future.delayed(const Duration(milliseconds: 2200));
+      if (_authService.isAuthenticated) {
+        return;
+      }
+
       await _authService.clearCachedProfile();
       emit(const Unauthenticated());
       return;
