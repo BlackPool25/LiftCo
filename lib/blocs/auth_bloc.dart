@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as sb;
 import '../models/user.dart' as app_user;
 import '../services/auth_service.dart';
 import '../services/device_service.dart';
@@ -93,7 +94,7 @@ class CompleteProfileRequested extends AuthEvent {
 class SignOutRequested extends AuthEvent {}
 
 class SupabaseAuthStateChanged extends AuthEvent {
-  final dynamic authState;
+  final sb.AuthState authState;
   const SupabaseAuthStateChanged(this.authState);
 
   @override
@@ -172,6 +173,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   bool _explicitSignOutInProgress = false;
 
+  DateTime? _firstNullSessionSeenAt;
+  DateTime? _lastNullSessionRecoveryAttemptAt;
+  DateTime? _lastDeviceRegisterAttemptAt;
+  String? _lastDeviceRegisterUserId;
+
+  static const Duration _nullSessionMaxGrace = Duration(minutes: 2);
+  static const Duration _nullSessionRecoveryCooldown = Duration(seconds: 10);
+  static const Duration _deviceRegisterCooldown = Duration(hours: 12);
+
   Future<app_user.User?> _fetchProfileWithRetry() async {
     // Short, bounded retries to allow backend auth_id self-heal and network jitter.
     const delays = <Duration>[
@@ -190,8 +200,23 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   Future<void> _registerDeviceSilently() async {
     if (_deviceService == null) return;
+
+    // Avoid hammering device registration on token refresh / repeated auth events.
+    final currentAuthUser = _authService.currentAuthUser;
+    final authUid = currentAuthUser?.id;
+    if (authUid != null &&
+        _lastDeviceRegisterUserId == authUid &&
+        _lastDeviceRegisterAttemptAt != null &&
+        DateTime.now().difference(_lastDeviceRegisterAttemptAt!) <
+            _deviceRegisterCooldown) {
+      return;
+    }
+
     try {
-      await _deviceService.registerDevice();
+      // Silent: do not re-prompt permissions from background refreshes.
+      await _deviceService.registerDevice(requestPermissionIfNeeded: false);
+      _lastDeviceRegisterAttemptAt = DateTime.now();
+      _lastDeviceRegisterUserId = authUid;
     } catch (e) {
       debugPrint('Failed to auto-register device: $e');
     }
@@ -460,6 +485,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     final session = event.authState.session;
+    final changeEvent = event.authState.event;
+
+    // Token refreshes are frequent during normal operation; avoid treating them
+    // like a full login (profile fetch + device registration), which creates
+    // request storms and can trigger 429 refresh rate limits.
+    if (changeEvent == sb.AuthChangeEvent.tokenRefreshed) {
+      if (state is Authenticated || state is NeedsProfileCompletion) {
+        return;
+      }
+      // If we're still booting/loading, fall through to resolve profile.
+    }
 
     if (session == null) {
       if (_explicitSignOutInProgress) {
@@ -468,31 +504,72 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
 
+      // If Supabase explicitly reports a sign-out, respect it.
+      if (changeEvent == sb.AuthChangeEvent.signedOut) {
+        _firstNullSessionSeenAt = null;
+        await _authService.clearCachedProfile();
+        emit(const Unauthenticated());
+        return;
+      }
+
+      _firstNullSessionSeenAt ??= DateTime.now();
+      final nullDuration = DateTime.now().difference(_firstNullSessionSeenAt!);
+      if (nullDuration > _nullSessionMaxGrace) {
+        _firstNullSessionSeenAt = null;
+        await _authService.clearCachedProfile();
+        emit(
+          const Unauthenticated(errorMessage: 'Session expired. Please sign in again.'),
+        );
+        return;
+      }
+
       // Supabase can briefly report a null session during refresh/storage sync.
       // Re-check after a short delay before treating this as a real sign-out.
       await Future.delayed(const Duration(milliseconds: 800));
       if (_authService.isAuthenticated) {
+        _firstNullSessionSeenAt = null;
         return;
       }
 
       // Attempt an explicit refresh (locked) before giving up. This avoids
       // getting stuck in an Authenticated UI state with no usable token.
-      final refreshed = await _authService.refreshSessionLocked();
-      if (refreshed != null) {
-        return;
+      final lastAttempt = _lastNullSessionRecoveryAttemptAt;
+      if (lastAttempt == null ||
+          DateTime.now().difference(lastAttempt) > _nullSessionRecoveryCooldown) {
+        _lastNullSessionRecoveryAttemptAt = DateTime.now();
+        final refreshed = await _authService.refreshSessionLocked();
+        if (refreshed != null) {
+          _firstNullSessionSeenAt = null;
+          return;
+        }
       }
 
       // If we hit rate limiting during refresh, recovery can take a bit longer.
       // Give it a little more time before forcing logout.
       await Future.delayed(const Duration(milliseconds: 2200));
       if (_authService.isAuthenticated) {
+        _firstNullSessionSeenAt = null;
+        return;
+      }
+
+      // If we have a cached complete profile or we're currently showing an
+      // authenticated UI, do not force a logout here. This is typically a
+      // transient token/rehydration gap (often with refresh rate limiting).
+      final cached = await _authService.getCachedUserProfile();
+      final canStayInApp =
+          (state is Authenticated) || (cached?.isProfileComplete ?? false);
+      if (canStayInApp) {
         return;
       }
 
       await _authService.clearCachedProfile();
-      emit(const Unauthenticated(errorMessage: 'Session expired. Please sign in again.'));
+      emit(
+        const Unauthenticated(errorMessage: 'Session expired. Please sign in again.'),
+      );
       return;
     }
+
+    _firstNullSessionSeenAt = null;
 
     // Auth changed (sign-in/refresh). Prefer cached profile for this auth user,
     // then refresh from server to avoid transient "profile not found" races.

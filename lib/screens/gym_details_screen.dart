@@ -63,14 +63,17 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
     });
   }
 
-  Future<void> _loadSessions() async {
+  Future<void> _loadSessions({bool forceRefresh = false}) async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
     try {
-      final sessions = await _gymService.getGymSessions(widget.gym.id);
+      final sessions = await _gymService.getGymSessions(
+        widget.gym.id,
+        forceRefresh: forceRefresh,
+      );
       setState(() {
         _sessions = sessions;
         _filteredSessions = sessions;
@@ -92,7 +95,7 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
       ),
     ).then((created) {
       if (created == true) {
-        _loadSessions();
+        _loadSessions(forceRefresh: true);
       }
     });
   }
@@ -105,7 +108,7 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
       ),
     ).then((joined) {
       if (joined == true) {
-        _loadSessions();
+        _loadSessions(forceRefresh: true);
       }
     });
   }
@@ -142,7 +145,9 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                       ),
                       const Spacer(),
                       GlassCard(
-                        onTap: _isLoading ? null : _loadSessions,
+                        onTap: _isLoading
+                            ? null
+                            : () => _loadSessions(forceRefresh: true),
                         padding: const EdgeInsets.all(10),
                         borderRadius: 14,
                         child: _isLoading

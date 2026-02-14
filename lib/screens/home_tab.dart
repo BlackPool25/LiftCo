@@ -267,12 +267,16 @@ class _HomeTabState extends State<HomeTab> {
     }
   }
 
-  Future<List<WorkoutSession>> _fetchSessionsPage(int page) async {
+  Future<List<WorkoutSession>> _fetchSessionsPage(
+    int page, {
+    bool forceRefresh = false,
+  }) async {
     var sessions = await _sessionService.listSessions(
       gymId: _filterGymId,
       status: 'upcoming',
       limit: _sessionsPerPage,
       offset: page * _sessionsPerPage,
+      forceRefresh: forceRefresh,
     );
 
     if (_filterIntensity != null) {
@@ -304,7 +308,7 @@ class _HomeTabState extends State<HomeTab> {
     });
 
     try {
-      final sessions = await _fetchSessionsPage(0);
+      final sessions = await _fetchSessionsPage(0, forceRefresh: true);
       if (!mounted) return;
 
       setState(() {

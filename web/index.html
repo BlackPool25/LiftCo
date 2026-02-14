@@ -58,8 +58,14 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
-          await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-          console.log('firebase-messaging-sw.js registered');
+          // Firebase Messaging expects a service worker controlling the
+          // '/firebase-cloud-messaging-push-scope' scope by default.
+          // Registering with the matching scope avoids timeouts/hangs.
+          await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+            scope: '/firebase-cloud-messaging-push-scope',
+          });
+          await navigator.serviceWorker.ready;
+          console.log('firebase-messaging-sw.js registered and ready');
         } catch (error) {
           console.error('Failed to register firebase-messaging-sw.js', error);
         }
