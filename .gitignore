@@ -51,3 +51,5 @@ app.*.map.json
 
 node_modules
 .agents
+
+liftco-firebase-adminsdk-fbsvc-bfdbc06dff.json
