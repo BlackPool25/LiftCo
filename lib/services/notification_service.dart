@@ -187,6 +187,25 @@ class NotificationService {
         throw Exception('User not authenticated');
       }
 
+      // On web, the edge function path is frequently blocked by transient auth
+      // gaps (401) during service worker/token setup. Direct DB upsert works
+      // with our RLS policies and avoids extra edge-function requests.
+      if (kIsWeb) {
+        await _upsertDeviceDirectly(
+          fcmToken: fcmToken,
+          deviceType: deviceType,
+          deviceName: deviceName,
+        );
+
+        final status = await getCurrentDeviceStatus();
+        if (!(status['enabled'] as bool? ?? false)) {
+          throw Exception(
+            'Device registration was not persisted (authorized=${status['authorized']}, token=${status['token'] != null}, active_in_db=${status['active_in_db']})',
+          );
+        }
+        return;
+      }
+
       var edgeRegistered = false;
       try {
         await _api.registerDevice(

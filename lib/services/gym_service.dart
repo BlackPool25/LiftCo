@@ -9,6 +9,12 @@ class GymService {
   final SupabaseClient _supabase;
   late final SupabaseService _api;
 
+  static const Duration _gymSessionsTtl = Duration(seconds: 25);
+  final Map<int, _CacheEntry<List<WorkoutSession>>> _gymSessionsCache =
+      <int, _CacheEntry<List<WorkoutSession>>>{};
+  final Map<int, Future<List<WorkoutSession>>> _gymSessionsInFlight =
+      <int, Future<List<WorkoutSession>>>{};
+
   GymService(this._supabase) {
     _api = SupabaseService(_supabase);
   }
@@ -49,8 +55,22 @@ class GymService {
   }
 
   /// Get upcoming sessions for a gym
-  Future<List<WorkoutSession>> getGymSessions(int gymId) async {
+  Future<List<WorkoutSession>> getGymSessions(
+    int gymId, {
+    bool forceRefresh = false,
+  }) async {
     try {
+      final cached = _gymSessionsCache[gymId];
+      if (!forceRefresh && cached != null && !cached.isExpired(_gymSessionsTtl)) {
+        return cached.value;
+      }
+
+      if (!forceRefresh) {
+        final inFlight = _gymSessionsInFlight[gymId];
+        if (inFlight != null) return inFlight;
+      }
+
+      final future = () async {
       final response = await _api.listSessions(
         gymId: gymId,
         status: 'upcoming',
@@ -63,7 +83,16 @@ class GymService {
           .map(WorkoutSession.fromJson)
           .toList();
 
-      return sessions;
+        _gymSessionsCache[gymId] = _CacheEntry<List<WorkoutSession>>(sessions);
+        return sessions;
+      }();
+
+      _gymSessionsInFlight[gymId] = future;
+      try {
+        return await future;
+      } finally {
+        _gymSessionsInFlight.remove(gymId);
+      }
     } on PostgrestException catch (e) {
       debugPrint('Error fetching gym sessions: ${e.message}');
       throw Exception('Failed to fetch sessions: ${e.message}');
@@ -79,4 +108,13 @@ class GymService {
 
     return getGyms(searchQuery: query);
   }
+}
+
+class _CacheEntry<T> {
+  final T value;
+  final DateTime createdAt;
+
+  _CacheEntry(this.value) : createdAt = DateTime.now();
+
+  bool isExpired(Duration ttl) => DateTime.now().difference(createdAt) > ttl;
 }

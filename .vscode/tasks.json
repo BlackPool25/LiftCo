@@ -1,0 +1,49 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "flutter test",
+			"type": "shell",
+			"command": "flutter",
+			"args": [
+				"test"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "flutter analyze (fvm stable path)",
+			"type": "shell",
+			"command": "/home/lightdesk/fvm/versions/stable/bin/flutter",
+			"args": [
+				"analyze"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "flutter test (fvm stable path)",
+			"type": "shell",
+			"command": "/home/lightdesk/fvm/versions/stable/bin/flutter",
+			"args": [
+				"test"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "flutter test (fvm stable path)",
+			"type": "shell",
+			"command": "/home/lightdesk/fvm/versions/stable/bin/flutter",
+			"args": [
+				"test"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		}
+	]
+}

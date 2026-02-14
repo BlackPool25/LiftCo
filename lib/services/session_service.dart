@@ -9,8 +9,42 @@ class SessionService {
   final SupabaseClient _supabase;
   late final SupabaseService _api;
 
+  static const Duration _listTtl = Duration(seconds: 25);
+  static const Duration _detailsTtl = Duration(seconds: 12);
+
+  final Map<String, _CacheEntry<List<WorkoutSession>>> _listCache =
+    <String, _CacheEntry<List<WorkoutSession>>>{};
+  final Map<String, _CacheEntry<WorkoutSession?>> _detailsCache =
+    <String, _CacheEntry<WorkoutSession?>>{};
+  final Map<String, Future<List<WorkoutSession>>> _listInFlight =
+    <String, Future<List<WorkoutSession>>>{};
+  final Map<String, Future<WorkoutSession?>> _detailsInFlight =
+    <String, Future<WorkoutSession?>>{};
+
   SessionService(this._supabase) {
     _api = SupabaseService(_supabase);
+  }
+
+  String _listCacheKey({
+    required int? gymId,
+    required String? status,
+    required String? sessionType,
+    required String? dateFrom,
+    required String? dateTo,
+    required int limit,
+    required int offset,
+    required bool joinedOnly,
+  }) {
+    return [
+      'gymId=${gymId ?? ""}',
+      'status=${status ?? ""}',
+      'type=${sessionType ?? ""}',
+      'from=${dateFrom ?? ""}',
+      'to=${dateTo ?? ""}',
+      'limit=$limit',
+      'offset=$offset',
+      'joinedOnly=$joinedOnly',
+    ].join('&');
   }
 
   /// Create a new workout session
@@ -79,36 +113,59 @@ class SessionService {
   }
 
   /// Get session details with members
-  Future<WorkoutSession?> getSession(String sessionId) async {
+  Future<WorkoutSession?> getSession(
+    String sessionId, {
+    bool forceRefresh = false,
+  }) async {
     try {
-      final response = await _api.getSession(sessionId);
+      final cached = _detailsCache[sessionId];
+      if (!forceRefresh && cached != null && !cached.isExpired(_detailsTtl)) {
+        return cached.value;
+      }
 
-      if (response['session'] == null) return null;
-      return WorkoutSession.fromJson(response['session'] as Map<String, dynamic>);
+      if (!forceRefresh) {
+        final inFlight = _detailsInFlight[sessionId];
+        if (inFlight != null) return inFlight;
+      }
+
+      final future = () async {
+        final response = await _api.getSession(sessionId);
+
+        if (response['session'] == null) {
+          _detailsCache[sessionId] = _CacheEntry<WorkoutSession?>(null);
+          return null;
+        }
+
+        final parsed = WorkoutSession.fromJson(
+          response['session'] as Map<String, dynamic>,
+        );
+        _detailsCache[sessionId] = _CacheEntry<WorkoutSession?>(parsed);
+        return parsed;
+      }();
+
+      _detailsInFlight[sessionId] = future;
+      return await future;
     } on PostgrestException catch (e) {
       debugPrint('Error fetching session: ${e.message}');
       throw Exception('Failed to fetch session: ${e.message}');
     } catch (e) {
       debugPrint('Unexpected error fetching session: $e');
       throw Exception('Failed to fetch session');
+    } finally {
+      _detailsInFlight.remove(sessionId);
     }
   }
 
   /// Get user's sessions
-  Future<List<WorkoutSession>> getUserSessions() async {
+  Future<List<WorkoutSession>> getUserSessions({bool forceRefresh = false}) async {
     try {
-      final response = await _api.listSessions(
+      final sessions = await listSessions(
         status: 'upcoming',
         limit: 100,
         offset: 0,
         joinedOnly: true,
+        forceRefresh: forceRefresh,
       );
-
-      final sessions = (response['sessions'] as List<dynamic>? ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(WorkoutSession.fromJson)
-          .where((s) => s.status != 'cancelled')
-          .toList();
 
       sessions.sort((a, b) => a.startTime.compareTo(b.startTime));
       return sessions;
@@ -156,8 +213,9 @@ class SessionService {
     int limit = 50,
     int offset = 0,
     bool joinedOnly = false,
+    bool forceRefresh = false,
   }) async {
-    final response = await _api.listSessions(
+    final key = _listCacheKey(
       gymId: gymId,
       status: status,
       sessionType: sessionType,
@@ -168,10 +226,42 @@ class SessionService {
       joinedOnly: joinedOnly,
     );
 
-    return (response['sessions'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(WorkoutSession.fromJson)
-        .toList();
+    final cached = _listCache[key];
+    if (!forceRefresh && cached != null && !cached.isExpired(_listTtl)) {
+      return cached.value;
+    }
+
+    if (!forceRefresh) {
+      final inFlight = _listInFlight[key];
+      if (inFlight != null) return inFlight;
+    }
+
+    final future = () async {
+      final response = await _api.listSessions(
+        gymId: gymId,
+        status: status,
+        sessionType: sessionType,
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+        limit: limit,
+        offset: offset,
+        joinedOnly: joinedOnly,
+      );
+
+      final parsed = (response['sessions'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(WorkoutSession.fromJson)
+          .toList();
+      _listCache[key] = _CacheEntry<List<WorkoutSession>>(parsed);
+      return parsed;
+    }();
+
+    _listInFlight[key] = future;
+    try {
+      return await future;
+    } finally {
+      _listInFlight.remove(key);
+    }
   }
 
   /// Subscribe to all session changes (create, update, delete)
@@ -200,7 +290,9 @@ class SessionService {
     return Stream.periodic(
       const Duration(seconds: 5),
       (_) => null,
-    ).asyncMap((_) => getSession(sessionId)).startWithFuture(getSession(sessionId));
+    )
+        .asyncMap((_) => getSession(sessionId))
+        .startWithFuture(getSession(sessionId));
   }
 
   /// Subscribe to session members changes
@@ -228,6 +320,15 @@ class SessionService {
       (_) => null,
     ).asyncMap((_) => getUserSessions()).startWithFuture(getUserSessions());
   }
+}
+
+class _CacheEntry<T> {
+  final T value;
+  final DateTime createdAt;
+
+  _CacheEntry(this.value) : createdAt = DateTime.now();
+
+  bool isExpired(Duration ttl) => DateTime.now().difference(createdAt) > ttl;
 }
 
 extension _StreamStartWithFuture<T> on Stream<T> {

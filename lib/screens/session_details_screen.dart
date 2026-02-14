@@ -98,6 +98,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
             try {
               final updatedSession = await _sessionService.getSession(
                 _session!.id,
+                forceRefresh: true,
               );
               if (updatedSession != null && mounted) {
                 setState(() {
@@ -135,9 +136,12 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     }
   }
 
-  Future<void> _loadSessionDetails() async {
+  Future<void> _loadSessionDetails({bool forceRefresh = false}) async {
     try {
-      final session = await _sessionService.getSession(_session!.id);
+      final session = await _sessionService.getSession(
+        _session!.id,
+        forceRefresh: forceRefresh,
+      );
       if (session != null && mounted) {
         setState(() {
           _session = session;
@@ -166,7 +170,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
               backgroundColor: AppTheme.success,
             ),
           );
-          await _loadSessionDetails();
+          await _loadSessionDetails(forceRefresh: true);
         }
         break;
       } catch (e) {
@@ -246,7 +250,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
           ),
         );
         // Reload session to show updated member list and count
-        await _loadSessionDetails();
+        await _loadSessionDetails(forceRefresh: true);
       }
     } catch (e) {
       if (mounted) {
@@ -576,7 +580,7 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
                       _isRefreshing = true;
                     });
                     try {
-                      await _loadSessionDetails();
+                      await _loadSessionDetails(forceRefresh: true);
                       await _getCurrentUser();
                     } finally {
                       if (mounted) {
