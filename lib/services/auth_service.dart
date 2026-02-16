@@ -160,6 +160,28 @@ class AuthService {
   // Auth state stream
   Stream<AuthState> get authStateChanges => _supabase.auth.onAuthStateChange;
 
+  /// Send a magic link to the user's email.
+  ///
+  /// Note: This relies on an external browser redirect / deep link callback to
+  /// complete sign-in and persist the session.
+  Future<void> requestEmailMagicLink(String email) async {
+    try {
+      final redirectTo = kIsWeb
+          ? Uri.base.origin
+          : 'com.liftco.liftco://login-callback/';
+
+      await _supabase.auth.signInWithOtp(
+        email: email,
+        shouldCreateUser: true,
+        emailRedirectTo: redirectTo,
+      );
+    } on AuthException catch (e) {
+      throw AuthException(e.message, code: 'auth_error');
+    } catch (e) {
+      throw AuthException('Failed to send magic link: $e');
+    }
+  }
+
   /// Request an Email OTP (no magic-link redirect).
   ///
   /// This avoids web callback/deeplink issues that can prevent sessions from
