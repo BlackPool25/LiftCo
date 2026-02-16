@@ -273,16 +273,20 @@ Deno.serve(async (req) => {
       recipients,
     );
 
-    const { error: removeMembersError } = await serviceClient
+    // Preserve membership history: do NOT delete rows.
+    // Mark all currently joined memberships as cancelled so future history tabs
+    // can show past participation.
+    const { error: cancelMembersError } = await serviceClient
       .from("session_members")
-      .delete()
-      .eq("session_id", sessionId);
+      .update({ status: "cancelled" })
+      .eq("session_id", sessionId)
+      .eq("status", "joined");
 
-    if (removeMembersError) {
+    if (cancelMembersError) {
       return new Response(
         JSON.stringify({
-          error: "Session cancelled but failed to remove members",
-          details: removeMembersError.message,
+          error: "Session cancelled but failed to cancel members",
+          details: cancelMembersError.message,
           session_id: sessionId,
         }),
         {
@@ -296,7 +300,7 @@ Deno.serve(async (req) => {
       message: "Session cancelled successfully",
       session_id: sessionId,
       notifications: notificationResult,
-      members_removed: (joinedMembers ?? []).length,
+      members_cancelled: (joinedMembers ?? []).length,
     }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

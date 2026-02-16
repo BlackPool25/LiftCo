@@ -137,53 +137,61 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Available Sessions',
-                        style: Theme.of(context).textTheme.titleLarge,
+                      Row(
+                        children: [
+                          Text(
+                            'Available Sessions',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const Spacer(),
+                          GlassCard(
+                            onTap: _isLoading
+                                ? null
+                                : () => _loadSessions(forceRefresh: true),
+                            padding: const EdgeInsets.all(10),
+                            borderRadius: 14,
+                            child: _isLoading
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppTheme.primaryPurple,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.refresh,
+                                    size: 18,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                          ),
+                        ],
                       ),
-                      const Spacer(),
-                      GlassCard(
-                        onTap: _isLoading
-                            ? null
-                            : () => _loadSessions(forceRefresh: true),
-                        padding: const EdgeInsets.all(10),
-                        borderRadius: 14,
-                        child: _isLoading
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppTheme.primaryPurple,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.refresh,
-                                size: 18,
-                                color: AppTheme.textSecondary,
-                              ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Female-only mode toggle
+
+                      // Female-only mode toggle (full-width row on phones for easier tapping)
                       if (_currentUserGender?.toLowerCase() == 'female') ...[
-                        Flexible(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 172),
-                            child: _buildWomenOnlyToggle(),
-                          ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: _buildWomenOnlyToggle(),
                         ),
-                        const SizedBox(width: 8),
                       ],
-                      if (_filteredSessions.isNotEmpty)
-                        Text(
-                          '${_filteredSessions.length} sessions',
-                          style: const TextStyle(
-                            color: AppTheme.textMuted,
-                            fontSize: 13,
+                      if (_filteredSessions.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            '${_filteredSessions.length} sessions',
+                            style: const TextStyle(
+                              color: AppTheme.textMuted,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
+                      ],
                     ],
                   ),
                 ),
@@ -631,12 +639,12 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
 
   Widget _buildWomenOnlyToggle() {
     return Container(
-      height: 40,
+      height: 44,
       padding: const EdgeInsets.all(3),
       clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
         color: AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: AppTheme.surfaceBorder),
       ),
       child: LayoutBuilder(
@@ -660,7 +668,7 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                             colors: [Colors.pink[400]!, Colors.purple[500]!],
                           )
                         : AppTheme.primaryGradient,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(18),
                     boxShadow: [
                       BoxShadow(
                         color: AppTheme.primaryOrange.withValues(alpha: 0.25),
@@ -691,7 +699,7 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                                 ? AppTheme.textSecondary
                                 : Colors.white,
                             fontWeight: FontWeight.w700,
-                            fontSize: 12,
+                            fontSize: 13,
                           ),
                           child: const Text('All'),
                         ),
@@ -716,7 +724,7 @@ class _GymDetailsScreenState extends State<GymDetailsScreen> {
                                 ? Colors.white
                                 : AppTheme.textSecondary,
                             fontWeight: FontWeight.w700,
-                            fontSize: 11,
+                            fontSize: 12,
                           ),
                           child: const FittedBox(
                             fit: BoxFit.scaleDown,

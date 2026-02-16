@@ -154,6 +154,30 @@ Deno.serve(async (req) => {
 
     const isUserJoined = !!myMembership || session.host_user_id === requester.id;
 
+    // Public view policy:
+    // - Non-members can only view sessions that are upcoming and have not started.
+    // - Members/host can also view sessions while they are in progress.
+    // - Finished/cancelled sessions are not returned from this endpoint.
+    const now = new Date();
+    const sessionStart = new Date(session.start_time);
+    const durationMinutes = Number(session.duration_minutes ?? 0);
+    const sessionEnd = new Date(sessionStart.getTime() + durationMinutes * 60_000);
+
+    const isFutureUpcoming = session.status === "upcoming" && sessionStart.getTime() > now.getTime();
+    const isCurrentlyRunning =
+      sessionStart.getTime() <= now.getTime() && sessionEnd.getTime() > now.getTime();
+    const isAllowedForMember =
+      isUserJoined &&
+      (session.status === "upcoming" || session.status === "in_progress") &&
+      isCurrentlyRunning;
+
+    if (!isFutureUpcoming && !isAllowedForMember) {
+      return new Response(JSON.stringify({ error: "Session not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let members: unknown[] = [];
     if (isUserJoined) {
       const { data: joinedMembers } = await serviceClient

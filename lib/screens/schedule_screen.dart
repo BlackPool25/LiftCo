@@ -107,8 +107,29 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   /// Manual refresh - re-subscribes to get latest data
   Future<void> _refresh() async {
-    _sessionsSubscription?.cancel();
-    _subscribeToUserSessions();
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final sessions = await _sessionService.getUserSessions(
+        forceRefresh: true,
+        includeInProgress: true,
+      );
+      if (!mounted) return;
+
+      setState(() {
+        _sessions = sessions;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
   }
 
   void _navigateToSessionDetails(WorkoutSession session) {
@@ -130,10 +151,55 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Your Schedule',
-              style: Theme.of(context).textTheme.headlineLarge,
-            ).animate().fadeIn().slideY(begin: -0.2),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Your Schedule',
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ).animate().fadeIn().slideY(begin: -0.2),
+                ),
+                const SizedBox(width: 12),
+                GlassCard(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const CreateSessionScreen(),
+                      ),
+                    ).then((created) {
+                      if (created == true) {
+                        _refresh();
+                      }
+                    });
+                  },
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  borderRadius: 14,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.add,
+                        color: AppTheme.textPrimary,
+                        size: 18,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Create',
+                        style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             Text(
               'Manage your upcoming sessions',

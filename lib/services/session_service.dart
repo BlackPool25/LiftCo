@@ -156,19 +156,45 @@ class SessionService {
     }
   }
 
-  /// Get user's sessions
-  Future<List<WorkoutSession>> getUserSessions({bool forceRefresh = false}) async {
+  /// Get current user's joined sessions.
+  ///
+  /// - When [includeInProgress] is true, returns sessions that are either:
+  ///   - upcoming and not started yet, or
+  ///   - currently running (even if status is temporarily stale).
+  /// - Always filters out sessions that already ended.
+  Future<List<WorkoutSession>> getUserSessions({
+    bool forceRefresh = false,
+    bool includeInProgress = true,
+  }) async {
     try {
       final sessions = await listSessions(
-        status: 'upcoming',
+        status: includeInProgress ? null : 'upcoming',
         limit: 100,
         offset: 0,
         joinedOnly: true,
         forceRefresh: forceRefresh,
       );
 
-      sessions.sort((a, b) => a.startTime.compareTo(b.startTime));
-      return sessions;
+      final now = DateTime.now();
+      final filtered = sessions.where((session) {
+        if (!session.endTime.isAfter(now)) {
+          return false;
+        }
+
+        if (session.startTime.isAfter(now)) {
+          return true;
+        }
+
+        if (!includeInProgress) {
+          return false;
+        }
+
+        // Started but not ended yet (in progress window).
+        return true;
+      }).toList();
+
+      filtered.sort((a, b) => a.startTime.compareTo(b.startTime));
+      return filtered;
     } on PostgrestException catch (e) {
       debugPrint('Error fetching user sessions: ${e.message}');
       throw Exception('Failed to fetch sessions: ${e.message}');
@@ -318,7 +344,9 @@ class SessionService {
     return Stream.periodic(
       const Duration(seconds: 6),
       (_) => null,
-    ).asyncMap((_) => getUserSessions()).startWithFuture(getUserSessions());
+    )
+        .asyncMap((_) => getUserSessions(includeInProgress: true))
+        .startWithFuture(getUserSessions(includeInProgress: true));
   }
 }
 
