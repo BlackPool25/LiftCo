@@ -1,4 +1,5 @@
 // lib/services/notification_service.dart
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -12,6 +13,12 @@ import 'supabase_service.dart';
 class NotificationService {
   final SupabaseClient _supabase;
   late final SupabaseService _api;
+
+  static StreamSubscription<String>? _tokenRefreshSubscription;
+  static Future<void>? _tokenRefreshInFlight;
+  static String? _lastKnownToken;
+  static String? _lastDeviceType;
+  static String? _lastDeviceName;
 
   NotificationService(this._supabase) {
     _api = SupabaseService(_supabase);
@@ -92,10 +99,13 @@ class NotificationService {
       }
     }
 
-    var token = await getFcmToken();
-    if (token == null || token.isEmpty) {
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+    String? token;
+    // Web token can take a while right after SW registration/permission.
+    final attempts = kIsWeb ? 6 : 2;
+    for (var i = 0; i < attempts; i++) {
       token = await getFcmToken();
+      if (token != null && token.isNotEmpty) break;
+      await Future<void>.delayed(Duration(milliseconds: 250 + i * 450));
     }
     if (token == null || token.isEmpty) {
       throw Exception(
@@ -203,6 +213,13 @@ class NotificationService {
             'Device registration was not persisted (authorized=${status['authorized']}, token=${status['token'] != null}, active_in_db=${status['active_in_db']})',
           );
         }
+
+        _rememberDeviceForTokenRefresh(
+          token: fcmToken,
+          deviceType: deviceType,
+          deviceName: deviceName,
+        );
+        _ensureTokenRefreshListener();
         return;
       }
 
@@ -232,12 +249,66 @@ class NotificationService {
           'Device registration was not persisted (authorized=${status['authorized']}, token=${status['token'] != null}, active_in_db=${status['active_in_db']})',
         );
       }
+
+      _rememberDeviceForTokenRefresh(
+        token: fcmToken,
+        deviceType: deviceType,
+        deviceName: deviceName,
+      );
+      _ensureTokenRefreshListener();
     } on PostgrestException catch (e) {
       debugPrint('Error enabling notifications: ${e.message}');
       throw Exception('Failed to enable notifications: ${e.message}');
     } catch (e) {
       debugPrint('Unexpected error enabling notifications: $e');
       throw Exception('Failed to enable notifications: $e');
+    }
+  }
+
+  void _rememberDeviceForTokenRefresh({
+    required String token,
+    required String deviceType,
+    required String deviceName,
+  }) {
+    _lastKnownToken = token;
+    _lastDeviceType = deviceType;
+    _lastDeviceName = deviceName;
+  }
+
+  void _ensureTokenRefreshListener() {
+    _tokenRefreshSubscription ??=
+        FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+          // Coalesce refreshes.
+          _tokenRefreshInFlight ??= _handleTokenRefresh(newToken).whenComplete(() {
+            _tokenRefreshInFlight = null;
+          });
+        });
+  }
+
+  Future<void> _handleTokenRefresh(String newToken) async {
+    try {
+      final prev = _lastKnownToken;
+      if (newToken.isEmpty || prev == newToken) return;
+
+      final deviceType = _lastDeviceType;
+      final deviceName = _lastDeviceName;
+      if (deviceType == null || deviceName == null) {
+        // We haven't enabled notifications in this session yet.
+        _lastKnownToken = newToken;
+        return;
+      }
+
+      _lastKnownToken = newToken;
+      await enableNotifications(newToken, deviceType, deviceName);
+      if (prev != null && prev.isNotEmpty) {
+        try {
+          await disableNotifications(prev);
+        } catch (e) {
+          debugPrint('Token refresh: failed to deactivate old token: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Token refresh handler failed: $e');
     }
   }
 
@@ -293,7 +364,39 @@ class NotificationService {
         throw Exception('User not authenticated');
       }
 
-      await _api.removeDevice(fcmToken);
+      // On web, avoid edge functions for device changes (they can 401 during
+      // SW/token churn). Direct DB update works with our RLS policies.
+      if (kIsWeb) {
+        final appUserId = await CurrentUserResolver.resolveAppUserId(_supabase);
+        if (appUserId == null) return;
+        await _supabase
+            .from('user_devices')
+            .update({
+              'is_active': false,
+              'last_seen_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('user_id', appUserId)
+            .eq('fcm_token', fcmToken);
+        return;
+      }
+
+      try {
+        await _api.removeDevice(fcmToken);
+      } catch (edgeError) {
+        debugPrint('Edge remove failed, falling back to direct DB update: $edgeError');
+        final appUserId = await CurrentUserResolver.resolveAppUserId(_supabase);
+        if (appUserId == null) return;
+        await _supabase
+            .from('user_devices')
+            .update({
+              'is_active': false,
+              'last_seen_at': DateTime.now().toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('user_id', appUserId)
+            .eq('fcm_token', fcmToken);
+      }
     } on PostgrestException catch (e) {
       debugPrint('Error disabling notifications: ${e.message}');
       throw Exception('Failed to disable notifications: ${e.message}');

@@ -61,13 +61,14 @@ class _HomeTabState extends State<HomeTab> {
   int _currentPage = 0;
   bool _hasMoreSessions = true;
   bool _isLoadingMore = false;
-  Set<String> _userJoinedSessionIds = {};
+  final Set<String> _userJoinedSessionIds = {};
 
   // Realtime subscriptions
   final Map<String, StreamSubscription<WorkoutSession?>> _sessionSubscriptions =
       {};
   StreamSubscription<List<WorkoutSession>>? _newSessionsSubscription;
-  StreamSubscription<List<WorkoutSession>>? _userMembershipsSubscription;
+  // NOTE: We no longer poll memberships separately; sessions-list already
+  // returns `is_user_joined`, and visible session subscriptions keep it fresh.
 
   // Flag to prevent subscription from adding duplicates during initial load
   bool _isInitialLoading = true;
@@ -81,7 +82,6 @@ class _HomeTabState extends State<HomeTab> {
     _currentUser = widget.user;
     _loadSessions();
     _loadGyms();
-    _subscribeToUserMemberships();
     _subscribeToRecentSessions();
   }
 
@@ -92,8 +92,75 @@ class _HomeTabState extends State<HomeTab> {
       subscription.cancel();
     }
     _newSessionsSubscription?.cancel();
-    _userMembershipsSubscription?.cancel();
     super.dispose();
+  }
+
+  List<WorkoutSession> _computeFilteredSessions(
+    Iterable<WorkoutSession> sessions,
+  ) {
+    return sessions.where((session) {
+      // Available Sessions should only include sessions with open spots
+      // and that the user has not already joined.
+      final isJoined =
+          session.isUserJoined ?? _userJoinedSessionIds.contains(session.id);
+      if (session.isFull || isJoined) {
+        return false;
+      }
+
+      // Filter by female-only mode
+      if (_femaleOnlyMode && !session.isWomenOnly) {
+        return false;
+      }
+
+      // Filter by intensity
+      if (_filterIntensity != null &&
+          session.intensityLevel?.toLowerCase() !=
+              _filterIntensity!.toLowerCase()) {
+        return false;
+      }
+
+      // Filter by gym
+      if (_filterGymId != null && session.gymId != _filterGymId) {
+        return false;
+      }
+
+      // Filter by time range
+      if (_filterTimeRange != null) {
+        final hour = session.startTime.hour;
+        switch (_filterTimeRange) {
+          case 'morning':
+            if (hour < 5 || hour >= 12) return false;
+            break;
+          case 'afternoon':
+            if (hour < 12 || hour >= 17) return false;
+            break;
+          case 'evening':
+            if (hour < 17 || hour >= 22) return false;
+            break;
+        }
+      }
+
+      // Filter by duration
+      if (_filterDuration != null && session.durationMinutes != _filterDuration) {
+        return false;
+      }
+
+      return true;
+    }).toList();
+  }
+
+  void _mergeJoinedFlagsFromSessions(Iterable<WorkoutSession> sessions) {
+    // Only apply non-null join flags; if a payload omits `is_user_joined`,
+    // keep the last known state to avoid UI flicker.
+    for (final session in sessions) {
+      final flag = session.isUserJoined;
+      if (flag == null) continue;
+      if (flag) {
+        _userJoinedSessionIds.add(session.id);
+      } else {
+        _userJoinedSessionIds.remove(session.id);
+      }
+    }
   }
 
   /// Subscribe to specific visible sessions only (not all sessions)
@@ -129,14 +196,15 @@ class _HomeTabState extends State<HomeTab> {
                       _allSessions[index] = updatedSession.gym == null
                           ? updatedSession.copyWith(gym: existing.gym)
                           : updatedSession;
-                      _applyFilters();
+                      _mergeJoinedFlagsFromSessions([_allSessions[index]]);
+                      _filteredSessions = _computeFilteredSessions(_allSessions);
                     }
                   });
                 } else if (updatedSession == null && mounted) {
                   // Session was deleted/cancelled
                   setState(() {
                     _allSessions.removeWhere((s) => s.id == session.id);
-                    _applyFilters();
+                    _filteredSessions = _computeFilteredSessions(_allSessions);
                   });
                 }
               },
@@ -185,12 +253,14 @@ class _HomeTabState extends State<HomeTab> {
             if (newSessionIds.isNotEmpty || removedSessionIds.isNotEmpty) {
               setState(() {
                 _allSessions = topSessions;
-                _applyFilters();
+                _mergeJoinedFlagsFromSessions(_allSessions);
+                _filteredSessions = _computeFilteredSessions(_allSessions);
               });
             } else {
               setState(() {
                 _allSessions = topSessions;
-                _applyFilters();
+                _mergeJoinedFlagsFromSessions(_allSessions);
+                _filteredSessions = _computeFilteredSessions(_allSessions);
               });
             }
 
@@ -208,26 +278,6 @@ class _HomeTabState extends State<HomeTab> {
           },
           onError: (error) {
             debugPrint('Error in recent sessions subscription: $error');
-          },
-        );
-  }
-
-  /// Subscribe to user's membership changes (only their own)
-  void _subscribeToUserMemberships() {
-    _userMembershipsSubscription = _sessionService
-        .subscribeToUserSessions()
-        .listen(
-          (sessions) {
-            if (mounted) {
-              setState(() {
-                _userJoinedSessionIds = sessions
-                    .map((s) => s.id)
-                    .toSet();
-              });
-            }
-          },
-          onError: (error) {
-            debugPrint('Error in memberships subscription: $error');
           },
         );
   }
@@ -295,9 +345,12 @@ class _HomeTabState extends State<HomeTab> {
       sessions = sessions.where((s) => s.womenOnly).toList();
     }
 
-    return sessions
-        .where((s) => !s.isFull || _userJoinedSessionIds.contains(s.id))
-        .toList();
+    // Available Sessions should only include sessions that are not full and
+    // that the user has not already joined.
+    return sessions.where((s) {
+      final isJoined = s.isUserJoined ?? _userJoinedSessionIds.contains(s.id);
+      return !s.isFull && !isJoined;
+    }).toList();
   }
 
   Future<void> _reloadSessionsFromServer() async {
@@ -313,12 +366,12 @@ class _HomeTabState extends State<HomeTab> {
 
       setState(() {
         _allSessions = sessions;
+        _mergeJoinedFlagsFromSessions(_allSessions);
+        _filteredSessions = _computeFilteredSessions(_allSessions);
         _isLoadingSessions = false;
         _isInitialLoading = false;
         _hasMoreSessions = sessions.length >= _sessionsPerPage;
       });
-
-      _applyFilters();
       _subscribeToVisibleSessions();
     } catch (e) {
       if (mounted) {
@@ -345,7 +398,8 @@ class _HomeTabState extends State<HomeTab> {
       if (mounted) {
         setState(() {
           _allSessions.addAll(newSessions);
-          _applyFilters();
+          _mergeJoinedFlagsFromSessions(newSessions);
+          _filteredSessions = _computeFilteredSessions(_allSessions);
           _currentPage = nextPage;
           _hasMoreSessions = newSessions.length >= _sessionsPerPage;
           _isLoadingMore = false;
@@ -368,60 +422,13 @@ class _HomeTabState extends State<HomeTab> {
     await _reloadSessionsFromServer();
   }
 
-  void _applyFilters() {
-    setState(() {
-      _filteredSessions = _allSessions.where((session) {
-        // Filter by female-only mode
-        if (_femaleOnlyMode && !session.isWomenOnly) {
-          return false;
-        }
-
-        // Filter by intensity
-        if (_filterIntensity != null &&
-            session.intensityLevel?.toLowerCase() !=
-                _filterIntensity!.toLowerCase()) {
-          return false;
-        }
-
-        // Filter by gym
-        if (_filterGymId != null && session.gymId != _filterGymId) {
-          return false;
-        }
-
-        // Filter by time range
-        if (_filterTimeRange != null) {
-          final hour = session.startTime.hour;
-          switch (_filterTimeRange) {
-            case 'morning':
-              if (hour < 5 || hour >= 12) return false;
-              break;
-            case 'afternoon':
-              if (hour < 12 || hour >= 17) return false;
-              break;
-            case 'evening':
-              if (hour < 17 || hour >= 22) return false;
-              break;
-          }
-        }
-
-        // Filter by duration
-        if (_filterDuration != null &&
-            session.durationMinutes != _filterDuration) {
-          return false;
-        }
-
-        return true;
-      }).toList();
-    });
-  }
-
   void _clearFilters() {
     setState(() {
       _filterIntensity = null;
       _filterTimeRange = null;
       _filterDuration = null;
       _filterGymId = null;
-      _filteredSessions = _allSessions;
+      _filteredSessions = _computeFilteredSessions(_allSessions);
     });
   }
 
@@ -1194,7 +1201,6 @@ class _HomeTabState extends State<HomeTab> {
                           _femaleOnlyMode = false;
                         });
                         await _reloadSessionsFromServer();
-                        _applyFilters();
                       },
                       behavior: HitTestBehavior.opaque,
                       child: Center(
@@ -1220,7 +1226,6 @@ class _HomeTabState extends State<HomeTab> {
                           _femaleOnlyMode = true;
                         });
                         await _reloadSessionsFromServer();
-                        _applyFilters();
                       },
                       behavior: HitTestBehavior.opaque,
                       child: Center(
@@ -1555,7 +1560,8 @@ class _HomeTabState extends State<HomeTab> {
             itemCount: _filteredSessions.length,
             itemBuilder: (context, index) {
               final session = _filteredSessions[index];
-              final isJoined = _userJoinedSessionIds.contains(session.id);
+              final isJoined =
+                  session.isUserJoined ?? _userJoinedSessionIds.contains(session.id);
               return _buildSessionCard(session, index, isJoined);
             },
           ),
