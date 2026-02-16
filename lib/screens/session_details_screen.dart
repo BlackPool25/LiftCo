@@ -7,8 +7,10 @@ import '../config/theme.dart';
 import '../models/workout_session.dart';
 import '../services/current_user_resolver.dart';
 import '../services/session_service.dart';
+import '../utils/chat_window.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
+import 'session_chat_screen.dart';
 
 class SessionDetailsScreen extends StatefulWidget {
   final WorkoutSession session;
@@ -488,6 +490,15 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
                         child: _buildSessionInfoCard(),
                       ),
                     ),
+
+                    // Chat access (members only)
+                    if (_isUserJoined || _isHost)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                          child: _buildChatAccessCard(),
+                        ),
+                      ),
 
                     // Members section
                     SliverToBoxAdapter(
@@ -1065,6 +1076,104 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
     if (diff.inHours > 0) return '${diff.inHours}h ago';
     if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
     return 'Just now';
+  }
+
+  Widget _buildChatAccessCard() {
+    final session = _session;
+    if (session == null) {
+      return const SizedBox.shrink();
+    }
+
+    final window = ChatWindowInfo.fromSession(session, DateTime.now());
+
+    IconData icon;
+    String title;
+    String subtitle;
+    Color iconColor;
+    VoidCallback? onTap;
+
+    if (window.isLocked) {
+      icon = Icons.lock;
+      title = 'Chat opens in ${formatDurationCompact(window.opensAt.difference(DateTime.now()))}';
+      subtitle = 'Chat unlocks 24h before the session starts';
+      iconColor = AppTheme.textMuted;
+      onTap = null;
+    } else if (window.isClosed) {
+      icon = Icons.chat_bubble_outline;
+      title = 'Open Chat (read-only)';
+      subtitle = 'Sending is disabled 2h after the session ends';
+      iconColor = AppTheme.textSecondary;
+      onTap = () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SessionChatScreen(session: session),
+          ),
+        );
+      };
+    } else {
+      icon = Icons.chat_bubble;
+      title = 'Open Chat';
+      subtitle = 'Message your squad for this session';
+      iconColor = AppTheme.primaryOrange;
+      onTap = () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SessionChatScreen(session: session),
+          ),
+        );
+      };
+    }
+
+    return GlassCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(16),
+      borderRadius: 18,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.surfaceBorder),
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppTheme.textMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(
+            Icons.chevron_right,
+            color: onTap == null ? AppTheme.textMuted : AppTheme.textSecondary,
+          ),
+        ],
+      ),
+    );
   }
 
   Widget? _buildBottomBar() {

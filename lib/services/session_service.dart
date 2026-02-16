@@ -177,7 +177,10 @@ class SessionService {
 
       final now = DateTime.now();
       final filtered = sessions.where((session) {
-        if (!session.endTime.isAfter(now)) {
+        // Keep a short post-session window so members can still access
+        // session-related UX (e.g., chat) after the workout ends.
+        final visibleUntil = session.endTime.add(const Duration(hours: 2));
+        if (!visibleUntil.isAfter(now)) {
           return false;
         }
 

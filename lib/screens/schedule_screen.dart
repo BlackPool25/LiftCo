@@ -7,9 +7,11 @@ import '../config/theme.dart';
 import '../models/workout_session.dart';
 import '../services/current_user_resolver.dart';
 import '../services/session_service.dart';
+import '../utils/chat_window.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
 import 'create_session_screen.dart';
+import 'session_chat_screen.dart';
 import 'session_details_screen.dart';
 
 /// Schedule screen - shows upcoming sessions
@@ -313,6 +315,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   Widget _buildSessionCard(WorkoutSession session, int index) {
     final isHost = session.hostUserId == _currentAppUserId;
+    final chatWindow = ChatWindowInfo.fromSession(session, DateTime.now());
 
     return Dismissible(
       key: Key(session.id),
@@ -547,6 +550,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       fontSize: 12,
                     ),
                   ),
+                  const Spacer(),
+                  _buildChatAccessChip(session, chatWindow),
                 ],
               ),
             ],
@@ -554,6 +559,59 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ),
       ),
     ).animate().fadeIn(delay: (200 + index * 50).ms).slideY(begin: 0.1);
+  }
+
+  Widget _buildChatAccessChip(WorkoutSession session, ChatWindowInfo window) {
+    final isLocked = window.isLocked;
+    final isClosed = window.isClosed;
+
+    IconData icon;
+    String label;
+    Color iconColor;
+
+    if (isLocked) {
+      icon = Icons.lock;
+      label = 'Chat opens in ${formatDurationCompact(window.opensAt.difference(DateTime.now()))}';
+      iconColor = AppTheme.textMuted;
+    } else if (isClosed) {
+      icon = Icons.chat_bubble_outline;
+      label = 'Chat (read-only)';
+      iconColor = AppTheme.textSecondary;
+    } else {
+      icon = Icons.chat_bubble;
+      label = 'Open Chat';
+      iconColor = AppTheme.primaryOrange;
+    }
+
+    return GlassCard(
+      onTap: isLocked
+          ? null
+          : () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SessionChatScreen(session: session),
+                ),
+              );
+            },
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      borderRadius: 14,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: iconColor, size: 14),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: isLocked ? AppTheme.textMuted : AppTheme.textPrimary,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildSessionDetail(IconData icon, String text) {

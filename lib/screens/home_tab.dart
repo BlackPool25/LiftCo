@@ -968,81 +968,133 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   Widget _buildAppBar(BuildContext context) {
-    return Row(
-      children: [
-        // App logo + name
-        GlassCard(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          borderRadius: 16,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: AppTheme.surfaceLight,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Image.asset(
-                  'assets/images/liftco_logo.png',
-                  fit: BoxFit.contain,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'LiftCo',
-                style: GoogleFonts.plusJakartaSans(
-                  color: AppTheme.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Spacer(),
-        // Notification bell
-        GlassCard(
-          padding: const EdgeInsets.all(12),
-          borderRadius: 14,
-          onTap: () {},
-          child: Stack(
-            children: [
-              const Icon(
-                Icons.notifications_outlined,
-                color: AppTheme.textPrimary,
-                size: 22,
-              ),
-              Positioned(
-                right: 0,
-                top: 0,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryOrange,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+    final isFemale = _currentUser.gender?.toLowerCase() == 'female';
 
-        // Female-only mode toggle (for female users only)
-        if (_currentUser.gender?.toLowerCase() == 'female') ...[
+    final logo = GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      borderRadius: 16,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Image.asset(
+              'assets/images/liftco_logo.png',
+              fit: BoxFit.contain,
+            ),
+          ),
           const SizedBox(width: 8),
-          Flexible(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 172),
-              child: _buildWomenOnlyToggle(),
+          Text(
+            'LiftCo',
+            style: GoogleFonts.plusJakartaSans(
+              color: AppTheme.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
             ),
           ),
         ],
-      ],
+      ),
+    );
+
+    final bell = GlassCard(
+      padding: const EdgeInsets.all(12),
+      borderRadius: 14,
+      onTap: () {},
+      child: Stack(
+        children: [
+          const Icon(
+            Icons.notifications_outlined,
+            color: AppTheme.textPrimary,
+            size: 22,
+          ),
+          Positioned(
+            right: 0,
+            top: 0,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryOrange,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (!isFemale) {
+      return Row(
+        children: [
+          logo,
+          const Spacer(),
+          bell,
+        ],
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 390;
+
+        if (isNarrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  logo,
+                  const Spacer(),
+                  bell,
+                ],
+              ),
+              const SizedBox(height: 10),
+              GlassCard(
+                padding: const EdgeInsets.all(12),
+                borderRadius: 18,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.female, color: AppTheme.textSecondary, size: 16),
+                        SizedBox(width: 6),
+                        Text(
+                          'Women-only sessions filter',
+                          style: TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(width: double.infinity, child: _buildWomenOnlyToggle()),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            logo,
+            const Spacer(),
+            bell,
+            const SizedBox(width: 10),
+            SizedBox(width: 230, child: _buildWomenOnlyToggle()),
+          ],
+        );
+      },
     );
   }
 
@@ -1151,7 +1203,7 @@ class _HomeTabState extends State<HomeTab> {
 
   Widget _buildWomenOnlyToggle() {
     return Container(
-      height: 40,
+      height: 44,
       padding: const EdgeInsets.all(3),
       clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
@@ -1236,7 +1288,7 @@ class _HomeTabState extends State<HomeTab> {
                                 ? Colors.white
                                 : AppTheme.textSecondary,
                             fontWeight: FontWeight.w700,
-                            fontSize: 11,
+                            fontSize: 12,
                           ),
                           child: const FittedBox(
                             fit: BoxFit.scaleDown,

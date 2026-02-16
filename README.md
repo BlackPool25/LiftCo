@@ -18,6 +18,7 @@ LiftCo helps fitness enthusiasts find workout partners at their specific gym thr
 - **Multiple Authentication Options** - Email OTP, Phone OTP, Google OAuth, Apple Sign-In
 - **Visual Profile Setup** - Interactive cards for selecting workout preferences instead of boring dropdowns
 - **Real-time Notifications** - Push notifications when users join sessions
+- **Session Chat (Contextual)** - Realtime chat for session members (opens 24h before, closes 2h after)
 - **Smart Validation** - Time conflict detection, capacity management
 - **Secure by Design** - Row Level Security (RLS) policies protect all user data
 - **Premium Dark UI** - Glassmorphism effects, gradient accents, modern typography
@@ -58,6 +59,7 @@ lib/
 │   ├── gym_details_screen.dart # Gym details with sessions
 │   ├── schedule_screen.dart    # User's joined sessions
 │   ├── session_details_screen.dart   # Session details with members
+│   ├── session_chat_screen.dart # Session chat (members only)
 │   ├── create_session_screen.dart    # Create new session
 │   └── settings_screen.dart    # User settings
 ├── services/                   # Business logic & API calls
@@ -66,6 +68,7 @@ lib/
 │   ├── session_service_refactored.dart   # Edge Function based sessions
 │   ├── gym_service.dart        # Gym operations
 │   ├── user_service.dart       # User profile operations
+│   ├── chat_service.dart       # Session chat read/send + realtime
 │   └── auth_service.dart       # Supabase auth wrapper
 ├── widgets/                    # Reusable UI components
 │   ├── glass_card.dart         # Glassmorphic card widget
@@ -132,6 +135,16 @@ All backend operations are exposed through Supabase Edge Functions following RES
 | `devices-register` | POST | Register device for push notifications |
 | `devices-remove` | POST | Remove device registration |
 | `notifications-send` | POST | Send push notification |
+
+#### Chat Functions
+| Function | Method | JWT | Description |
+|----------|--------|-----|-------------|
+| `chat-send-message` | POST | Yes | Insert chat message + push notify other session members |
+
+**Chat Storage + Realtime**
+- Table: `public.chat_messages` (realtime enabled)
+- Access: RLS enforces membership; chat write window is server-enforced
+- Window: opens 24h before `workout_sessions.start_time` and closes 2h after session end
 
 ### Database Triggers
 
