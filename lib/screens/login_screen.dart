@@ -67,7 +67,8 @@ class _LoginScreenState extends State<LoginScreen>
       }
       setState(() {
         _contactInfo = email;
-        _magicLinkSent = true; // Show confirmation UI immediately
+        _magicLinkSent = false;
+        _otpSent = false;
       });
       context.read<AuthBloc>().add(SignInWithEmailRequested(email));
     } else {

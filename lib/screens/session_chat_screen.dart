@@ -226,9 +226,23 @@ class _SessionChatScreenState extends State<SessionChatScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+
+      final raw = e.toString().replaceAll('Exception: ', '');
+      final normalized = raw.toLowerCase();
+      final isAuthProblem =
+          normalized.contains('not authenticated') ||
+          normalized.contains('invalid or expired session') ||
+          normalized.contains('authorization header required') ||
+          normalized.contains('authsessionmissingexception') ||
+          normalized.contains('jwt');
+
+      final message = isAuthProblem
+          ? 'Session expired — please sign in again to send messages.'
+          : raw;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
+          content: Text(message),
           backgroundColor: AppTheme.error,
         ),
       );

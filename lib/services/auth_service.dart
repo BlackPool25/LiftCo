@@ -23,6 +23,16 @@ class AuthService {
   static final Lock _refreshSessionLock = Lock();
   static Future<Session?>? _refreshSessionFuture;
 
+  static DateTime? _missingRefreshTokenSeenAt;
+  static const Duration _missingRefreshTokenCooldown = Duration(minutes: 5);
+
+  bool _isMissingRefreshTokenError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('no refresh token') ||
+        text.contains('authsessionmissingexception') ||
+        text.contains('refresh token') && text.contains('missing');
+  }
+
   static const _kCachedProfileAuthUid = 'cached_profile_auth_uid';
   static const _kCachedProfileJson = 'cached_profile_json';
   static const _kCachedProfileComplete = 'cached_profile_complete';
@@ -31,11 +41,20 @@ class AuthService {
   AuthService(this._supabase);
 
   Future<Session?> refreshSessionLocked() {
+    if (_missingRefreshTokenSeenAt != null &&
+        DateTime.now().difference(_missingRefreshTokenSeenAt!) <
+            _missingRefreshTokenCooldown) {
+      return Future.value(null);
+    }
+
     return _refreshSessionLock.synchronized(() {
       _refreshSessionFuture ??= _supabase.auth
           .refreshSession()
           .then((response) => response.session)
           .catchError((e, _) {
+            if (_isMissingRefreshTokenError(e)) {
+              _missingRefreshTokenSeenAt = DateTime.now();
+            }
             debugPrint('Auth refreshSession failed: $e');
             return null;
           })
@@ -141,21 +160,22 @@ class AuthService {
   // Auth state stream
   Stream<AuthState> get authStateChanges => _supabase.auth.onAuthStateChange;
 
-  /// Sign in with email Magic Link
-  Future<void> signInWithEmailMagicLink(String email) async {
+  /// Request an Email OTP (no magic-link redirect).
+  ///
+  /// This avoids web callback/deeplink issues that can prevent sessions from
+  /// being persisted (which breaks JWT-protected Edge Functions like chat).
+  Future<void> requestEmailOtp(String email) async {
     try {
-      // Use magic link instead of OTP
       await _supabase.auth.signInWithOtp(
         email: email,
         shouldCreateUser: true,
-        emailRedirectTo: kIsWeb
-            ? 'http://localhost:3000'
-            : 'com.liftco.liftco://login-callback/',
+        // Intentionally omit emailRedirectTo so Supabase sends a 6-digit OTP
+        // that we verify inside the app.
       );
     } on AuthException catch (e) {
       throw AuthException(e.message, code: 'auth_error');
     } catch (e) {
-      throw AuthException('Failed to send magic link: $e');
+      throw AuthException('Failed to send email OTP: $e');
     }
   }
 
@@ -205,10 +225,11 @@ class AuthService {
   /// Sign in with Google OAuth
   Future<bool> signInWithGoogle() async {
     try {
+      final webRedirectTo = kIsWeb ? Uri.base.origin : null;
       final response = await _supabase.auth.signInWithOAuth(
         OAuthProvider.google,
         redirectTo: kIsWeb
-            ? 'http://localhost:3000'
+            ? webRedirectTo
             : 'com.liftco.liftco://login-callback/',
       );
       return response;
@@ -222,9 +243,10 @@ class AuthService {
   /// Sign in with Apple OAuth
   Future<bool> signInWithApple() async {
     try {
+      final webRedirectTo = kIsWeb ? Uri.base.origin : null;
       final response = await _supabase.auth.signInWithOAuth(
         OAuthProvider.apple,
-        redirectTo: kIsWeb ? null : 'com.liftco.liftco://login-callback/',
+        redirectTo: kIsWeb ? webRedirectTo : 'com.liftco.liftco://login-callback/',
       );
       return response;
     } on AuthException catch (e) {

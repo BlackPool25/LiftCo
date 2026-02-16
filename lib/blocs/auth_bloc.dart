@@ -312,9 +312,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(AuthLoading());
 
     try {
-      await _authService.signInWithEmailMagicLink(event.email);
-      debugPrint('Magic link sent successfully, emitting MagicLinkSent state');
-      emit(MagicLinkSent(email: event.email));
+      await _authService.requestEmailOtp(event.email);
+      emit(OTPSent(emailOrPhone: event.email, isEmail: true));
     } catch (e) {
       debugPrint('Magic link error: $e');
       emit(AuthError(e.toString()));

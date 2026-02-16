@@ -1,4 +1,5 @@
 // lib/main.dart
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -30,7 +31,39 @@ void main() async {
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL']!,
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+    // Explicitly use PKCE so web auth callbacks use `?code=...` (not URL hash),
+    // which avoids conflicts with Flutter web's hash-based routing and ensures
+    // refresh tokens are issued/persisted.
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.pkce,
+    ),
   );
+
+  // Web-only: If the auth callback lands with `code=...` in the URL fragment
+  // (common when hash routing is involved), supabase_flutter PKCE auto-detect
+  // won't see it because it checks query parameters only. Recover once here.
+  if (kIsWeb) {
+    try {
+      final client = Supabase.instance.client;
+      final alreadyHasSession = client.auth.currentSession != null;
+      if (!alreadyHasSession) {
+        final origin = Uri.base;
+
+        // Normalize fragment into query so we can read `code=` reliably.
+        final normalized = origin.hasQuery
+            ? Uri.parse(origin.toString().replaceAll('#', '&'))
+            : Uri.parse(origin.toString().replaceAll('#', '?'));
+
+        final code = normalized.queryParameters['code'];
+        if (code != null && code.isNotEmpty) {
+          await client.auth.exchangeCodeForSession(code);
+        }
+      }
+    } catch (e) {
+      // Non-blocking: app can still be used unauthenticated.
+      debugPrint('Auth callback recovery failed: $e');
+    }
+  }
 
   // Initialize Firebase for push notifications (all platforms)
   DeviceService? deviceService;

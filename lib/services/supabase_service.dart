@@ -17,14 +17,36 @@ class SupabaseService {
   static final Lock _refreshSessionLock = Lock();
   static Future<Session?>? _globalRefreshSessionFuture;
 
+  // If the SDK reports there's no refresh token, repeated refresh attempts are
+  // guaranteed to fail and can quickly lead to rate limiting. Apply a cooldown
+  // before trying again.
+  static DateTime? _missingRefreshTokenSeenAt;
+  static const Duration _missingRefreshTokenCooldown = Duration(minutes: 5);
+
+  bool _isMissingRefreshTokenError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('no refresh token') ||
+        text.contains('authsessionmissingexception') ||
+        text.contains('refresh token') && text.contains('missing');
+  }
+
   SupabaseService(this._client);
 
   Future<Session?> _refreshSessionLocked() async {
+    if (_missingRefreshTokenSeenAt != null &&
+        DateTime.now().difference(_missingRefreshTokenSeenAt!) <
+            _missingRefreshTokenCooldown) {
+      return null;
+    }
+
     return _refreshSessionLock.synchronized(() {
       _globalRefreshSessionFuture ??= _client.auth
           .refreshSession()
           .then((response) => response.session)
           .catchError((e, _) {
+            if (_isMissingRefreshTokenError(e)) {
+              _missingRefreshTokenSeenAt = DateTime.now();
+            }
             debugPrint('refreshSession failed: $e');
             return null;
           })
@@ -59,14 +81,10 @@ class SupabaseService {
         await Future.delayed(const Duration(milliseconds: 150));
         session = _client.auth.currentSession;
       }
-      session ??= await _refreshSessionLocked();
 
+      // Avoid eager refresh on every request: it can cause refresh storms and
+      // 429s. Only refresh when a request actually returns 401.
       var accessToken = session?.accessToken;
-      if (accessToken == null || accessToken.isEmpty) {
-        // One last chance: session can rehydrate shortly after a failed refresh.
-        await Future.delayed(const Duration(milliseconds: 300));
-        accessToken = _client.auth.currentSession?.accessToken;
-      }
       if (accessToken == null || accessToken.isEmpty) {
         throw const AuthException('Not authenticated. Please sign in again.');
       }
@@ -158,6 +176,10 @@ class SupabaseService {
               retryOnRateLimit: retryOnRateLimit,
             );
           }
+
+          // No refresh token (or refresh failed). Surface an auth-specific error
+          // so callers can prompt re-auth without retry loops.
+          throw const AuthException('Session expired. Please sign in again.');
         }
 
         final data = decodedData;
