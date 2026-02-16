@@ -33,39 +33,6 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
-		},
-		{
-			"label": "flutter test (fvm stable path)",
-			"type": "shell",
-			"command": "/home/lightdesk/fvm/versions/stable/bin/flutter",
-			"args": [
-				"test"
-			],
-			"isBackground": false,
-			"problemMatcher": [],
-			"group": "test"
-		},
-		{
-			"label": "flutter test (fvm stable path)",
-			"type": "shell",
-			"command": "/home/lightdesk/fvm/versions/stable/bin/flutter",
-			"args": [
-				"test"
-			],
-			"isBackground": false,
-			"problemMatcher": [],
-			"group": "test"
-		},
-		{
-			"label": "flutter test (fvm stable path)",
-			"type": "shell",
-			"command": "/home/lightdesk/fvm/versions/stable/bin/flutter",
-			"args": [
-				"test"
-			],
-			"isBackground": false,
-			"problemMatcher": [],
-			"group": "test"
 		}
 	]
 }
