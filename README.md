@@ -176,6 +176,10 @@ LiftCo supports a prototype attendance system using **iBeacon** broadcasting fro
     - `python3 attendance_scanner/scanner.py --adapter hci0`
   - Add `--no-ui` to disable the live dashboard.
 
+Interactive mode:
+- When run in a TTY, the scanner will prompt for any missing required values and will also ask for `ATTENDANCE_SCANNER_ID` (scanner_id label).
+- It will optionally offer an “advanced options” wizard for adapter selection, `ATTENDANCE_MIN_RSSI`, debug output, and UI toggles.
+
 Config sources / precedence:
 - Flags override environment variables.
 - Missing values are prompted interactively when running in a TTY.

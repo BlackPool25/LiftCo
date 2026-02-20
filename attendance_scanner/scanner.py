@@ -313,6 +313,25 @@ async def main() -> None:
         )
         args.gym_id = IntPrompt.ask("Gym ID")
 
+    # scanner_id is required for verifier auth (it must match the registered
+    # attendance_scanners.scanner_id row for the same gym_id).
+    # Even though we have a default, prompt interactively so users don't
+    # accidentally keep using the wrong label.
+    if sys.stdin is not None and sys.stdin.isatty():
+        console.print(
+            Panel(
+                "Enter the [b]scanner_id[/b] label for this laptop.\n\n"
+                "- Example: laptop-1\n"
+                "- This must match the scanner_id you registered with manage_scanners.py\n"
+                "- It is NOT a secret",
+                title="Scanner ID",
+            )
+        )
+        args.scanner_id = Prompt.ask(
+            "ATTENDANCE_SCANNER_ID",
+            default=str(args.scanner_id or "laptop-1"),
+        ).strip() or "laptop-1"
+
     if not args.scanner_key:
         require_tty_or_exit("--scanner-key / ATTENDANCE_SCANNER_KEY")
         explain_secrets()
@@ -345,6 +364,33 @@ async def main() -> None:
                     title="[yellow]Warning[/yellow]",
                 )
             )
+
+    # Optional advanced configuration in interactive mode.
+    if sys.stdin is not None and sys.stdin.isatty():
+        if Confirm.ask("Configure advanced options (adapter/min_rssi/debug)?", default=False):
+            # Adapter selection is mainly useful on Linux with multiple adapters.
+            args.adapter = Prompt.ask(
+                "ATTENDANCE_BLE_ADAPTER (blank for default)",
+                default=str(args.adapter or ""),
+            ).strip() or None
+
+            args.min_rssi = IntPrompt.ask(
+                "ATTENDANCE_MIN_RSSI",
+                default=int(args.min_rssi),
+            )
+
+            args.scan_seconds = float(
+                Prompt.ask(
+                    "ATTENDANCE_PREFLIGHT_SECONDS",
+                    default=str(args.scan_seconds),
+                ).strip()
+                or args.scan_seconds
+            )
+
+            args.strict_apple_id = Confirm.ask("Strict Apple company id (0x004C) only?", default=bool(args.strict_apple_id))
+            args.debug_adv = Confirm.ask("Print manufacturer ADV debug lines?", default=bool(args.debug_adv))
+            args.verbose = Confirm.ask("Print verify OK/ERR lines?", default=bool(args.verbose))
+            args.no_ui = Confirm.ask("Disable live UI dashboard (--no-ui)?", default=bool(args.no_ui))
 
     # Final validation.
     if not args.supabase_url.startswith("https://"):
