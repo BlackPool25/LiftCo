@@ -95,9 +95,27 @@ def add_scanner(base_url: str, headers: Dict[str, str], gym_id: int, scanner_id:
 
     console = Console()
 
+    if scanner_id.strip() == "":
+        raise RuntimeError("scanner_id cannot be empty")
+
     if key is None:
         # 32 bytes -> 43 chars base64url-ish; we keep hex for copy/paste.
         key = secrets.token_hex(32)
+    else:
+        # We expect a 64-hex token (token_hex(32)). If someone pastes a label
+        # like 'laptop-1' here, provisioning will succeed but scanners will
+        # always get 401 Unauthorized.
+        import re
+
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", key.strip()):
+            console.print(
+                Panel(
+                    "The provided --scanner-key does not look like the expected 64-hex key.\n"
+                    "Proceeding will likely break verification (401 Unauthorized).\n\n"
+                    "Tip: omit --scanner-key to generate a correct key automatically.",
+                    title="[yellow]Warning[/yellow]",
+                )
+            )
 
     key_hash = sha256_hex(key)
     key_hint = key[-6:]  # last 6 chars (non-sensitive hint)
@@ -117,6 +135,7 @@ def add_scanner(base_url: str, headers: Dict[str, str], gym_id: int, scanner_id:
                     "This will register a scanner key for a gym.",
                     "- The key is stored hashed (SHA-256).",
                     "- You will only see the plaintext key now.",
+                    "- scanner_id is just a label (e.g. laptop-1).",
                 ]
             ),
             title="Register Scanner",
@@ -146,6 +165,10 @@ def add_scanner(base_url: str, headers: Dict[str, str], gym_id: int, scanner_id:
                     "",
                     "Then run:",
                     "  python3 attendance_scanner/scanner.py",
+                    "",
+                    "Notes:",
+                    "- ATTENDANCE_SCANNER_ID is the label you chose above.",
+                    "- ATTENDANCE_SCANNER_KEY is the secret (64-hex).",
                 ]
             ),
             title="Provisioning",

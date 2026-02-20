@@ -404,13 +404,13 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       }
 
       const duration = Duration(seconds: 30);
-      _broadcastCoordinator.start(sessionId: session.id, duration: duration);
-
       await _beaconBroadcaster.start(
         uuid: proximityUuid,
         major: major,
         minor: minor,
       );
+
+      _broadcastCoordinator.start(sessionId: session.id, duration: duration);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
