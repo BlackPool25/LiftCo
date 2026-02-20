@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+from collections import deque
 import json
 import os
 import re
@@ -9,6 +10,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 
@@ -20,6 +22,65 @@ DEFAULT_SUPABASE_URL = "https://bpfptwqysbouppknzaqk.supabase.co"
 
 
 _HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def _safe_filename(value: str) -> str:
+    value = value.strip()
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+    return value or "unknown"
+
+
+class JsonlLogger:
+    def __init__(
+        self,
+        path: Path,
+        max_bytes: int = 5_000_000,
+        backups: int = 3,
+    ) -> None:
+        self.path = path
+        self.max_bytes = max(100_000, int(max_bytes))
+        self.backups = max(0, int(backups))
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _rotate_if_needed(self) -> None:
+        if self.backups <= 0:
+            return
+        try:
+            size = self.path.stat().st_size
+        except FileNotFoundError:
+            return
+        if size < self.max_bytes:
+            return
+
+        # Rotate: file -> .1, .1 -> .2, ...
+        for idx in range(self.backups, 0, -1):
+            src = self.path.with_suffix(self.path.suffix + f".{idx}")
+            dst = self.path.with_suffix(self.path.suffix + f".{idx + 1}")
+            if src.exists():
+                if idx == self.backups:
+                    try:
+                        src.unlink()
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        src.rename(dst)
+                    except Exception:
+                        pass
+
+        try:
+            self.path.rename(self.path.with_suffix(self.path.suffix + ".1"))
+        except Exception:
+            # If rename fails, just keep appending.
+            pass
+
+    def log(self, event: dict) -> None:
+        self._rotate_if_needed()
+        record = dict(event)
+        record.setdefault("ts", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        line = json.dumps(record, separators=(",", ":"), ensure_ascii=False)
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
 
 
 def _looks_like_scanner_key(value: str) -> bool:
@@ -70,12 +131,19 @@ class AttendanceGateway:
         scanner_key: str,
         scanner_id: str,
         min_rssi: int,
+        http_timeout_seconds: float,
+        http_retries: int,
     ) -> None:
         self.supabase_url = supabase_url.rstrip("/")
         self.gym_id = gym_id
         self.scanner_key = scanner_key
         self.scanner_id = scanner_id
         self.min_rssi = min_rssi
+
+        self.http_timeout_seconds = float(http_timeout_seconds)
+        self.http_retries = max(1, int(http_retries))
+
+        self.key_hint: Optional[str] = None
 
         # Throttle: (user_id, token_u32) -> last_sent_epoch
         self._last_sent: Dict[Tuple[str, int], float] = {}
@@ -100,6 +168,28 @@ class AttendanceGateway:
         self.last_err_at: Optional[float] = None
         self.last_ok: Optional[str] = None
         self.last_err: Optional[str] = None
+        self.last_status_code: Optional[int] = None
+
+    def _post_json_with_retries(self, endpoint: str, headers: dict, payload: dict):
+        import requests
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(self.http_retries):
+            try:
+                return requests.post(
+                    endpoint,
+                    headers=headers,
+                    data=json.dumps(payload),
+                    timeout=self.http_timeout_seconds,
+                )
+            except Exception as e:
+                last_exc = e
+                if attempt < self.http_retries - 1:
+                    time.sleep(0.6 * (2**attempt))
+                    continue
+                raise
+
+        raise last_exc or RuntimeError("request failed")
 
     def should_send(self, frame: BeaconFrame) -> bool:
         self.frames_seen += 1
@@ -117,8 +207,6 @@ class AttendanceGateway:
         return True
 
     def verify(self, frame: BeaconFrame) -> None:
-        import requests
-
         self.requests_sent += 1
         endpoint = f"{self.supabase_url}/functions/v1/attendance-verify-scan"
         headers = {
@@ -134,13 +222,16 @@ class AttendanceGateway:
         }
 
         try:
-            res = requests.post(endpoint, headers=headers, data=json.dumps(payload), timeout=6)
+            res = self._post_json_with_retries(endpoint, headers=headers, payload=payload)
         except Exception as e:
             self.last_err_at = time.time()
             self.last_err = f"network error: {e}"
+            self.last_status_code = None
             return
 
-        if res.status_code == 200:
+        self.last_status_code = res.status_code
+
+        if 200 <= res.status_code < 300:
             self.requests_ok += 1
             self.last_ok_at = time.time()
             try:
@@ -164,6 +255,56 @@ class AttendanceGateway:
             )
         else:
             self.last_err = f"status={res.status_code} -> {err}"
+
+    def validate_scanner_key(self) -> bool:
+        """Preflight check: ensure (gym_id, scanner_id, key) is registered and active.
+
+        This calls an Edge Function so the scanner never needs the stored hash.
+        """
+
+        endpoint = f"{self.supabase_url}/functions/v1/attendance-validate-scanner"
+        headers = {
+            "Content-Type": "application/json",
+            "x-scanner-key": self.scanner_key,
+        }
+        payload = {
+            "gym_id": self.gym_id,
+            "scanner_id": self.scanner_id,
+        }
+
+        try:
+            res = self._post_json_with_retries(endpoint, headers=headers, payload=payload)
+        except Exception as e:
+            self.last_err_at = time.time()
+            self.last_err = (
+                f"key validation network error: {e} (timeout={self.http_timeout_seconds}s, retries={self.http_retries})"
+            )
+            self.last_status_code = None
+            return False
+
+        self.last_status_code = res.status_code
+
+        if 200 <= res.status_code < 300:
+            self.last_ok_at = time.time()
+            self.last_ok = "scanner key validated"
+            try:
+                data = res.json()
+                hint = data.get("key_hint") if isinstance(data, dict) else None
+                self.key_hint = str(hint).strip() if hint else None
+            except Exception:
+                self.key_hint = None
+            return True
+
+        self.last_err_at = time.time()
+        if res.status_code == 401:
+            self.last_err = "Invalid scanner key (401)."
+        elif res.status_code == 404:
+            self.last_err = (
+                "Validation function not found (404). Deploy the Edge Function 'attendance-validate-scanner'."
+            )
+        else:
+            self.last_err = f"key validation failed: status={res.status_code} -> {res.text}"
+        return False
 
 
 async def main() -> None:
@@ -219,11 +360,24 @@ async def main() -> None:
         default=float(os.environ.get("ATTENDANCE_PREFLIGHT_SECONDS", "1.2")),
         help="Preflight scan duration seconds (default: 1.2). Env: ATTENDANCE_PREFLIGHT_SECONDS",
     )
+    parser.add_argument(
+        "--http-timeout",
+        type=float,
+        default=float(os.environ.get("ATTENDANCE_HTTP_TIMEOUT_SECONDS", "12")),
+        help="HTTP timeout seconds for Edge Function calls (default: 12). Env: ATTENDANCE_HTTP_TIMEOUT_SECONDS",
+    )
+    parser.add_argument(
+        "--http-retries",
+        type=int,
+        default=int(os.environ.get("ATTENDANCE_HTTP_RETRIES", "3")),
+        help="Network retry attempts for Edge Function calls (default: 3). Env: ATTENDANCE_HTTP_RETRIES",
+    )
     args = parser.parse_args()
 
     try:
         from bleak import BleakScanner
         from rich.console import Console
+        from rich.layout import Layout
         from rich.live import Live
         from rich.panel import Panel
         from rich.table import Table
@@ -250,6 +404,7 @@ async def main() -> None:
                         "- You provision it with the admin tool: `python3 attendance_scanner/manage_scanners.py add ...`",
                         "- The key is stored hashed in the database table [b]public.attendance_scanners[/b].",
                         "- Keep the plaintext key in your password manager (you only see it at creation time).",
+                        "- If you lose it, you must revoke + create a new key (it can't be recovered).",
                         "",
                         "[b]Recommended (avoid shell history):[/b]",
                         "- Export env vars in your current shell session:",
@@ -342,7 +497,8 @@ async def main() -> None:
                 "Enter the [b]scanner key[/b] (secret).\n\n"
                 "- This is [b]NOT[/b] the scanner_id.\n"
                 "- Expected format: 64 hex characters (generated by manage_scanners.py).\n"
-                "- If you paste something like 'laptop-1', verification will always return 401.",
+                "- If you paste something like 'laptop-1', verification will always return 401.\n"
+                "- Store it safely: you will not be shown this secret again.",
                 title="Scanner Key",
             )
         )
@@ -409,7 +565,20 @@ async def main() -> None:
         scanner_key=args.scanner_key,
         scanner_id=args.scanner_id,
         min_rssi=args.min_rssi,
+        http_timeout_seconds=args.http_timeout,
+        http_retries=args.http_retries,
     )
+
+    # Local JSONL logging.
+    log_path_raw = os.environ.get("ATTENDANCE_SCANNER_LOG_PATH")
+    if log_path_raw:
+        log_path = Path(log_path_raw).expanduser()
+    else:
+        base = Path.home() / ".liftco" / "attendance_scanner" / "logs"
+        log_path = base / f"scanner_gym{args.gym_id}_{_safe_filename(args.scanner_id)}.jsonl"
+    log_max = int(os.environ.get("ATTENDANCE_SCANNER_LOG_MAX_BYTES", "5000000"))
+    log_backups = int(os.environ.get("ATTENDANCE_SCANNER_LOG_BACKUPS", "3"))
+    logger = JsonlLogger(log_path, max_bytes=log_max, backups=log_backups)
 
     console.print(
         Panel.fit(
@@ -421,11 +590,51 @@ async def main() -> None:
                     f"Scanner ID: {args.scanner_id}",
                     f"Min RSSI: {args.min_rssi} dBm",
                     f"Adapter: {args.adapter or '(default)'}",
+                    f"Log: {str(log_path)}",
+                    f"HTTP timeout: {args.http_timeout}s (retries: {args.http_retries})",
                 ]
             ),
             title="Startup",
         )
     )
+
+    # Security gate: validate scanner key before doing any BLE scanning.
+    console.print("Validating scanner credentials…")
+    ok = await asyncio.to_thread(gateway.validate_scanner_key)
+    logger.log(
+        {
+            "event": "scanner_key_validation",
+            "ok": bool(ok),
+            "gym_id": args.gym_id,
+            "scanner_id": args.scanner_id,
+            "status_code": gateway.last_status_code,
+            "error": gateway.last_err,
+        }
+    )
+    if not ok:
+        console.print(
+            Panel(
+                "\n".join(
+                    [
+                        "[red]Scanner key validation failed. Scanner will not start.[/red]",
+                        "",
+                        f"Reason: {gateway.last_err or 'unknown'}",
+                        "",
+                        "Tip: ensure you provisioned the key with manage_scanners.py and copied it exactly.",
+                        "If you need a hint for which key to use, run:",
+                        "  python3 attendance_scanner/manage_scanners.py list --gym-id <gym_id>",
+                        "If this is a timeout, check internet/DNS/firewall and try increasing:",
+                        "  ATTENDANCE_HTTP_TIMEOUT_SECONDS=20",
+                        "  ATTENDANCE_HTTP_RETRIES=5",
+                    ]
+                ),
+                title="Unauthorized",
+            )
+        )
+        sys.exit(2)
+
+    if gateway.key_hint and bool(int(os.environ.get("ATTENDANCE_SHOW_KEY_HINT", "0"))):
+        console.print(Panel(f"key_hint: [b]{gateway.key_hint}[/b]", title="Scanner Key Hint"))
 
     # Preflight: attempt a short scan to ensure BLE works (BlueZ running, permissions ok).
     try:
@@ -529,12 +738,49 @@ async def main() -> None:
     verify_queue: asyncio.Queue[BeaconFrame] = asyncio.Queue(maxsize=256)
 
     async def verify_worker() -> None:
+        recent_verified = deque(maxlen=5)
         while True:
             frame = await verify_queue.get()
             try:
                 before_ok = gateway.requests_ok
                 before_err = gateway.requests_err
                 await asyncio.to_thread(gateway.verify, frame)
+
+                if gateway.requests_ok != before_ok:
+                    recent_verified.appendleft(
+                        {
+                            "at": time.strftime('%H:%M:%S', time.localtime(time.time())),
+                            "user": frame.user_id,
+                            "rssi": frame.rssi,
+                            "status": gateway.last_status_code,
+                        }
+                    )
+                    logger.log(
+                        {
+                            "event": "attendance_verified",
+                            "ok": True,
+                            "status_code": gateway.last_status_code,
+                            "gym_id": args.gym_id,
+                            "scanner_id": args.scanner_id,
+                            "user_id": frame.user_id,
+                            "token_u32": frame.token_u32,
+                            "rssi": frame.rssi,
+                        }
+                    )
+                elif gateway.requests_err != before_err:
+                    logger.log(
+                        {
+                            "event": "attendance_verified",
+                            "ok": False,
+                            "status_code": gateway.last_status_code,
+                            "gym_id": args.gym_id,
+                            "scanner_id": args.scanner_id,
+                            "user_id": frame.user_id,
+                            "token_u32": frame.token_u32,
+                            "rssi": frame.rssi,
+                            "error": gateway.last_err,
+                        }
+                    )
 
                 should_print = args.no_ui or args.verbose
                 if should_print:
@@ -548,6 +794,9 @@ async def main() -> None:
                         )
             finally:
                 verify_queue.task_done()
+
+            # Attach recent_verified on the gateway for UI rendering.
+            setattr(gateway, "recent_verified", list(recent_verified))
 
     scanner_kwargs = {}
     if args.adapter:
@@ -587,7 +836,7 @@ async def main() -> None:
 
     poll_task = asyncio.create_task(poll_worker())
 
-    def render_table() -> Table:
+    def render_metrics_table() -> Table:
         t = Table(title="Scanner Status", expand=True)
         t.add_column("Metric")
         t.add_column("Value", justify="right")
@@ -616,6 +865,39 @@ async def main() -> None:
             t.add_row("Last error", gateway.last_err)
         return t
 
+    def render_recent_table() -> Table:
+        t = Table(title="Latest verified (top 5)", expand=True)
+        t.add_column("Time", no_wrap=True)
+        t.add_column("User", overflow="fold")
+        t.add_column("RSSI", justify="right")
+        t.add_column("HTTP", justify="right")
+
+        rows = getattr(gateway, "recent_verified", []) or []
+        if not rows:
+            t.add_row("-", "(none yet)", "-", "-")
+            return t
+
+        for r in rows[:5]:
+            user_id = str(r.get("user", ""))
+            short = user_id[:8] + "…" + user_id[-4:] if len(user_id) > 16 else user_id
+            t.add_row(
+                str(r.get("at", "")),
+                short,
+                f"{r.get('rssi', '')}",
+                f"{r.get('status', '')}",
+            )
+        return t
+
+    def render_layout():
+        layout = Layout(name="root")
+        layout.split_row(
+            Layout(name="left", ratio=2),
+            Layout(name="right", ratio=3),
+        )
+        layout["left"].update(Panel(render_metrics_table(), title="Metrics"))
+        layout["right"].update(Panel(render_recent_table(), title="Latest verified"))
+        return layout
+
     console.print("Scanning for iBeacon frames… (Ctrl+C to stop)")
     try:
         async with scanner:
@@ -623,7 +905,7 @@ async def main() -> None:
                 while True:
                     await asyncio.sleep(1)
             else:
-                with Live(render_table(), console=console, refresh_per_second=4):
+                with Live(get_renderable=render_layout, console=console, refresh_per_second=4):
                     while True:
                         await asyncio.sleep(0.25)
     finally:
