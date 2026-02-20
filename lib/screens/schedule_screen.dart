@@ -36,6 +36,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   RealtimeChannel? _attendanceChannel;
   String? _broadcastingSessionId;
+  int _broadcastSecondsRemaining = 0;
+  Timer? _broadcastTimer;
 
   // Realtime subscription
   StreamSubscription<List<WorkoutSession>>? _sessionsSubscription;
@@ -65,6 +67,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   @override
   void dispose() {
     _sessionsSubscription?.cancel();
+    _broadcastTimer?.cancel();
     if (_attendanceChannel != null) {
       Supabase.instance.client.removeChannel(_attendanceChannel!);
       _attendanceChannel = null;
@@ -614,12 +617,14 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     ),
                   ),
                   const Spacer(),
-                  if (_shouldShowAttendanceChip(session)) ...[
-                    _buildAttendanceChip(session),
-                    const SizedBox(width: 10),
-                  ],
                   _buildChatAccessChip(session, chatWindow),
                 ],
+              ),
+              const SizedBox(height: 10),
+              // Dedicated attendance row (keeps chips from cramping the same line)
+              Align(
+                alignment: Alignment.centerRight,
+                child: _buildAttendanceChip(session),
               ),
             ],
           ),
@@ -628,39 +633,118 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     ).animate().fadeIn(delay: (200 + index * 50).ms).slideY(begin: 0.1);
   }
 
-  bool _shouldShowAttendanceChip(WorkoutSession session) {
-    if (session.attendanceMarked == true) return false;
-
+  bool _isAttendanceWindowOpen(WorkoutSession session) {
     final now = DateTime.now();
     final opensAt = session.startTime.subtract(const Duration(minutes: 10));
     final closesAt = session.startTime.add(const Duration(minutes: 15));
+    return !now.isBefore(opensAt) && !now.isAfter(closesAt);
+  }
 
-    final inWindow = !now.isBefore(opensAt) && !now.isAfter(closesAt);
-    return inWindow;
+  bool _isAttendanceTooLate(WorkoutSession session) {
+    final now = DateTime.now();
+    final closesAt = session.startTime.add(const Duration(minutes: 15));
+    return now.isAfter(closesAt);
+  }
+
+  Duration _attendanceOpensIn(WorkoutSession session) {
+    final now = DateTime.now();
+    final opensAt = session.startTime.subtract(const Duration(minutes: 10));
+    return opensAt.difference(now);
   }
 
   Widget _buildAttendanceChip(WorkoutSession session) {
-    final isBusy = _broadcastingSessionId == session.id;
+    final isBroadcasting = _broadcastingSessionId == session.id;
+    final isMarked = session.attendanceMarked == true;
+    final isOpen = _isAttendanceWindowOpen(session);
+    final isTooLate = _isAttendanceTooLate(session);
+
+    final enabled = !isBroadcasting && !isMarked && isOpen;
+
+    IconData icon;
+    Color iconColor;
+    String label;
+
+    if (isMarked) {
+      icon = Icons.verified;
+      iconColor = AppTheme.success;
+      label = 'Marked';
+    } else if (isBroadcasting) {
+      icon = Icons.wifi_tethering;
+      iconColor = AppTheme.primaryOrange;
+      label = 'Broadcasting ${_broadcastSecondsRemaining}s';
+    } else if (isTooLate) {
+      icon = Icons.timer_off;
+      iconColor = AppTheme.textMuted;
+      label = 'Mark attendance';
+    } else if (!isOpen) {
+      icon = Icons.schedule;
+      iconColor = AppTheme.textMuted;
+      label = 'Mark attendance';
+    } else {
+      icon = Icons.check_circle_outline;
+      iconColor = AppTheme.primaryOrange;
+      label = 'Mark attendance';
+    }
 
     return GlassCard(
-      onTap: isBusy ? null : () => _markAttendance(session),
+      onTap: isBroadcasting
+          ? null
+          : () {
+              if (enabled) {
+                _markAttendance(session);
+                return;
+              }
+
+              if (isMarked) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Attendance already marked ✅'),
+                    backgroundColor: AppTheme.success,
+                  ),
+                );
+                return;
+              }
+
+              if (isTooLate) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Too late to mark attendance'),
+                    backgroundColor: AppTheme.error,
+                  ),
+                );
+                return;
+              }
+
+              final opensIn = _attendanceOpensIn(session);
+              final pretty = formatDurationCompact(opensIn);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Attendance opens in $pretty'),
+                  backgroundColor: AppTheme.textSecondary,
+                ),
+              );
+            },
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       borderRadius: 14,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.check_circle_outline,
-            color: isBusy ? AppTheme.textMuted : AppTheme.primaryOrange,
+            icon,
+            color: iconColor,
             size: 14,
           ),
           const SizedBox(width: 6),
-          Text(
-            isBusy ? 'Broadcasting…' : 'Mark attendance',
-            style: TextStyle(
-              color: isBusy ? AppTheme.textMuted : AppTheme.textPrimary,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: enabled ? AppTheme.textPrimary : AppTheme.textMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -671,8 +755,74 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Future<void> _markAttendance(WorkoutSession session) async {
     if (_broadcastingSessionId != null) return;
 
+    // UI-side guard so we can show a clean message without a network request.
+    if (session.attendanceMarked == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attendance already marked ✅'),
+          backgroundColor: AppTheme.success,
+        ),
+      );
+      return;
+    }
+
+    if (_isAttendanceTooLate(session)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Too late to mark attendance'),
+          backgroundColor: AppTheme.error,
+        ),
+      );
+      return;
+    }
+
+    if (!_isAttendanceWindowOpen(session)) {
+      final pretty = formatDurationCompact(_attendanceOpensIn(session));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Attendance opens in $pretty'),
+          backgroundColor: AppTheme.textSecondary,
+        ),
+      );
+      return;
+    }
+
+    // Ask for permissions early so users are prompted immediately.
+    await _ensureBeaconPermissions();
+
+    final support = await _beaconBroadcaster.getSupport();
+    if (!support.isSupported) {
+      throw Exception(support.details ?? 'Beacon broadcasting not supported');
+    }
+    if (!support.bluetoothOn) {
+      throw Exception('Bluetooth is off');
+    }
+    if (!support.advertisingAvailable) {
+      throw Exception('BLE advertising unavailable on this device');
+    }
+
     setState(() {
       _broadcastingSessionId = session.id;
+      _broadcastSecondsRemaining = 30;
+    });
+
+    _broadcastTimer?.cancel();
+    _broadcastTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_broadcastingSessionId != session.id) {
+        timer.cancel();
+        return;
+      }
+      if (_broadcastSecondsRemaining <= 1) {
+        setState(() {
+          _broadcastSecondsRemaining = 0;
+        });
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _broadcastSecondsRemaining -= 1;
+      });
     });
 
     try {
@@ -680,6 +830,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       final response = await api.post(
         'attendance-get-token',
         body: {'session_id': session.id},
+      );
+
+      debugPrint(
+        '[attendance-get-token] session=${session.id} response=${response.keys.toList()} '
+        'token_u32=${response['token_u32']} window_index=${response['window_index']}',
       );
 
       final beacon = response['ibeacon'] as Map<String, dynamic>?;
@@ -691,20 +846,12 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       final major = (beacon['major'] as num?)?.toInt();
       final minor = (beacon['minor'] as num?)?.toInt();
 
+      debugPrint(
+        '[ibeacon] uuid=$proximityUuid major=$major minor=$minor',
+      );
+
       if (proximityUuid == null || major == null || minor == null) {
         throw Exception('Invalid beacon data');
-      }
-
-      await _ensureBeaconPermissions();
-      final support = await _beaconBroadcaster.getSupport();
-      if (!support.isSupported) {
-        throw Exception(support.details ?? 'Beacon broadcasting not supported');
-      }
-      if (!support.bluetoothOn) {
-        throw Exception('Bluetooth is off');
-      }
-      if (!support.advertisingAvailable) {
-        throw Exception('BLE advertising unavailable on this device');
       }
 
       await _beaconBroadcaster.start(
@@ -743,8 +890,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       if (mounted) {
         setState(() {
           _broadcastingSessionId = null;
+          _broadcastSecondsRemaining = 0;
         });
       }
+      _broadcastTimer?.cancel();
     }
   }
 
@@ -760,15 +909,62 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
       ]);
+    } else if (Platform.isIOS) {
+      // CoreBluetooth will still prompt on iOS; request it explicitly.
+      permissions.add(Permission.bluetooth);
     }
 
     for (final p in permissions) {
       final status = await p.status;
-      if (status.isGranted) continue;
+      if (status.isGranted || status.isLimited) continue;
+
       final requested = await p.request();
-      if (!requested.isGranted) {
-        throw Exception('Permission denied: ${p.toString()}');
+
+      if (requested.isGranted || requested.isLimited) continue;
+
+      if (!mounted) throw Exception('Permission required');
+
+      final label = switch (p) {
+        Permission.locationWhenInUse => 'Location',
+        Permission.bluetooth => 'Bluetooth',
+        Permission.bluetoothAdvertise => 'Bluetooth advertising',
+        Permission.bluetoothScan => 'Bluetooth scanning',
+        Permission.bluetoothConnect => 'Bluetooth connect',
+        _ => 'Required',
+      };
+
+      // If the user permanently denied, guide them to Settings.
+      if (requested.isPermanentlyDenied || requested.isRestricted) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: AppTheme.surface,
+            title: const Text(
+              'Permission needed',
+              style: TextStyle(color: AppTheme.textPrimary),
+            ),
+            content: Text(
+              '$label permission is required to mark attendance.',
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await openAppSettings();
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
       }
+
+      throw Exception('Permission denied: $label');
     }
   }
 

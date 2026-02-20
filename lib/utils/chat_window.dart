@@ -22,8 +22,13 @@ class ChatWindowInfo {
   bool get canSend => isOpen;
 
   static ChatWindowInfo fromSession(WorkoutSession session, DateTime now) {
-    final opensAt = session.startTime.subtract(const Duration(days: 1));
-    final closesAt = session.endTime.add(const Duration(hours: 2));
+    final sessionStartLocal = session.startTime;
+    final sessionEndLocal = sessionStartLocal.add(
+      Duration(minutes: session.durationMinutes),
+    );
+
+    final opensAt = sessionStartLocal.subtract(const Duration(days: 1));
+    final closesAt = sessionEndLocal.add(const Duration(hours: 2));
 
     final state = now.isBefore(opensAt)
         ? ChatWindowState.locked

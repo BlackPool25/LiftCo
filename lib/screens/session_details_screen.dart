@@ -1,12 +1,16 @@
 // lib/screens/session_details_screen.dart
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/theme.dart';
 import '../models/workout_session.dart';
 import '../services/current_user_resolver.dart';
+import '../services/ibeacon_broadcaster.dart';
 import '../services/session_service.dart';
+import '../services/supabase_service.dart';
 import '../utils/chat_window.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
@@ -23,12 +27,18 @@ class SessionDetailsScreen extends StatefulWidget {
 
 class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
   late SessionService _sessionService;
+  final IBeaconBroadcaster _beaconBroadcaster = IBeaconBroadcaster();
   WorkoutSession? _session;
   bool _isJoining = false;
   bool _isRefreshing = false;
   String? _currentUserId;
   bool _isUserJoined = false;
   bool _membershipChecked = false;
+
+  RealtimeChannel? _attendanceChannel;
+  bool _isBroadcastingAttendance = false;
+  int _broadcastSecondsRemaining = 0;
+  Timer? _broadcastTimer;
 
   // Realtime subscription for this specific session
   StreamSubscription<WorkoutSession?>? _sessionSubscription;
@@ -53,13 +63,62 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
 
     _subscribeToSession();
     _subscribeToMembers();
+
+    _subscribeToAttendance();
   }
 
   @override
   void dispose() {
     _sessionSubscription?.cancel();
     _membersSubscription?.cancel();
+    _broadcastTimer?.cancel();
+    if (_attendanceChannel != null) {
+      Supabase.instance.client.removeChannel(_attendanceChannel!);
+      _attendanceChannel = null;
+    }
     super.dispose();
+  }
+
+  void _subscribeToAttendance() {
+    final currentUserId = _currentUserId;
+    final sessionId = _session?.id;
+    if (currentUserId == null || sessionId == null) return;
+
+    _attendanceChannel ??= Supabase.instance.client.channel(
+      'attendance:$sessionId:$currentUserId',
+    );
+
+    _attendanceChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'session_attendance',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'session_id',
+            value: sessionId,
+          ),
+          callback: (payload) {
+            try {
+              final record = Map<String, dynamic>.from(payload.newRecord);
+              final userId = record['user_id'] as String?;
+              if (userId == null || userId != currentUserId) return;
+              if (!mounted) return;
+              setState(() {
+                _session = _session?.copyWith(attendanceMarked: true);
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Attendance marked ✅'),
+                  backgroundColor: AppTheme.success,
+                ),
+              );
+            } catch (_) {
+              // ignore
+            }
+          },
+        )
+        .subscribe();
   }
 
   /// Subscribe to this specific session's changes
@@ -135,6 +194,257 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
       _isUserJoined = _session!.members!.any(
         (m) => m.userId == _currentUserId && m.status == 'joined',
       );
+    }
+  }
+
+  bool get _canShowAttendance {
+    return _session != null && (_isHost || _isUserJoined);
+  }
+
+  bool _isAttendanceWindowOpen(WorkoutSession session) {
+    final now = DateTime.now();
+    final opensAt = session.startTime.subtract(const Duration(minutes: 10));
+    final closesAt = session.startTime.add(const Duration(minutes: 15));
+    return !now.isBefore(opensAt) && !now.isAfter(closesAt);
+  }
+
+  bool _isAttendanceTooLate(WorkoutSession session) {
+    final now = DateTime.now();
+    final closesAt = session.startTime.add(const Duration(minutes: 15));
+    return now.isAfter(closesAt);
+  }
+
+  Duration _attendanceOpensIn(WorkoutSession session) {
+    final now = DateTime.now();
+    final opensAt = session.startTime.subtract(const Duration(minutes: 10));
+    return opensAt.difference(now);
+  }
+
+  String _formatCompact(Duration duration) {
+    var seconds = duration.inSeconds;
+    if (seconds < 0) seconds = 0;
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    if (minutes >= 60) {
+      final hours = minutes ~/ 60;
+      final mins = minutes % 60;
+      return mins == 0 ? '${hours}h' : '${hours}h ${mins}m';
+    }
+    if (minutes > 0) return '${minutes}m';
+    return '${remainingSeconds}s';
+  }
+
+  Future<void> _ensureBeaconPermissions() async {
+    final permissions = <Permission>[Permission.locationWhenInUse];
+
+    if (Platform.isAndroid) {
+      permissions.addAll([
+        Permission.bluetooth,
+        Permission.bluetoothAdvertise,
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+      ]);
+    } else if (Platform.isIOS) {
+      permissions.add(Permission.bluetooth);
+    }
+
+    for (final p in permissions) {
+      final status = await p.status;
+      if (status.isGranted || status.isLimited) continue;
+      final requested = await p.request();
+
+      if (requested.isGranted || requested.isLimited) continue;
+
+      if (!mounted) throw Exception('Permission required');
+
+      final label = switch (p) {
+        Permission.locationWhenInUse => 'Location',
+        Permission.bluetooth => 'Bluetooth',
+        Permission.bluetoothAdvertise => 'Bluetooth advertising',
+        Permission.bluetoothScan => 'Bluetooth scanning',
+        Permission.bluetoothConnect => 'Bluetooth connect',
+        _ => 'Required',
+      };
+
+      if (requested.isPermanentlyDenied || requested.isRestricted) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: AppTheme.surface,
+            title: const Text(
+              'Permission needed',
+              style: TextStyle(color: AppTheme.textPrimary),
+            ),
+            content: Text(
+              '$label permission is required to mark attendance.',
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await openAppSettings();
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+      }
+
+      throw Exception('Permission denied: $label');
+    }
+  }
+
+  Future<void> _markAttendance() async {
+    final session = _session;
+    if (session == null) return;
+    if (_isBroadcastingAttendance) return;
+
+    if (session.attendanceMarked == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attendance already marked ✅'),
+          backgroundColor: AppTheme.success,
+        ),
+      );
+      return;
+    }
+
+    if (_isAttendanceTooLate(session)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Too late to mark attendance'),
+          backgroundColor: AppTheme.error,
+        ),
+      );
+      return;
+    }
+
+    if (!_isAttendanceWindowOpen(session)) {
+      final pretty = _formatCompact(_attendanceOpensIn(session));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Attendance opens in $pretty'),
+          backgroundColor: AppTheme.textSecondary,
+        ),
+      );
+      return;
+    }
+
+    // Ask for permissions early so users are prompted immediately.
+    await _ensureBeaconPermissions();
+
+    final support = await _beaconBroadcaster.getSupport();
+    if (!support.isSupported) {
+      throw Exception(support.details ?? 'Beacon broadcasting not supported');
+    }
+    if (!support.bluetoothOn) {
+      throw Exception('Bluetooth is off');
+    }
+    if (!support.advertisingAvailable) {
+      throw Exception('BLE advertising unavailable on this device');
+    }
+
+    setState(() {
+      _isBroadcastingAttendance = true;
+      _broadcastSecondsRemaining = 30;
+    });
+
+    _broadcastTimer?.cancel();
+    _broadcastTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (!_isBroadcastingAttendance) {
+        timer.cancel();
+        return;
+      }
+
+      if (_broadcastSecondsRemaining <= 1) {
+        setState(() {
+          _broadcastSecondsRemaining = 0;
+        });
+        timer.cancel();
+        return;
+      }
+
+      setState(() {
+        _broadcastSecondsRemaining -= 1;
+      });
+    });
+
+    try {
+      final api = SupabaseService(Supabase.instance.client);
+      final response = await api.post(
+        'attendance-get-token',
+        body: {'session_id': session.id},
+      );
+
+      debugPrint(
+        '[attendance-get-token] session=${session.id} response=${response.keys.toList()} '
+        'token_u32=${response['token_u32']} window_index=${response['window_index']}',
+      );
+
+      final beacon = response['ibeacon'] as Map<String, dynamic>?;
+      if (beacon == null) {
+        throw Exception('Invalid token response');
+      }
+
+      final proximityUuid = beacon['proximity_uuid'] as String?;
+      final major = (beacon['major'] as num?)?.toInt();
+      final minor = (beacon['minor'] as num?)?.toInt();
+
+      debugPrint(
+        '[ibeacon] uuid=$proximityUuid major=$major minor=$minor',
+      );
+
+      if (proximityUuid == null || major == null || minor == null) {
+        throw Exception('Invalid beacon data');
+      }
+
+      await _beaconBroadcaster.start(
+        uuid: proximityUuid,
+        major: major,
+        minor: minor,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Broadcasting attendance token…'),
+            backgroundColor: AppTheme.primaryOrange,
+          ),
+        );
+      }
+
+      await Future.delayed(const Duration(seconds: 30));
+      await _beaconBroadcaster.stop();
+    } catch (e) {
+      try {
+        await _beaconBroadcaster.stop();
+      } catch (_) {
+        // ignore
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Attendance failed: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    } finally {
+      _broadcastTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _isBroadcastingAttendance = false;
+          _broadcastSecondsRemaining = 0;
+        });
+      }
     }
   }
 
@@ -676,10 +986,21 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
 
           const SizedBox(height: 16),
 
-          // Title
-          Text(
-            _session?.title ?? 'Untitled Session',
-            style: Theme.of(context).textTheme.headlineSmall,
+          // Title + Attendance action (right-side highlighted)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  _session?.title ?? 'Untitled Session',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+              ),
+              if (_canShowAttendance) ...[
+                const SizedBox(width: 12),
+                _buildAttendanceChip(),
+              ],
+            ],
           ),
 
           // Joined indicator (shown near the top of the session)
@@ -848,6 +1169,93 @@ class _SessionDetailsScreenState extends State<SessionDetailsScreen> {
         ],
       ),
     ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.1);
+  }
+
+  Widget _buildAttendanceChip() {
+    final session = _session;
+    if (session == null) return const SizedBox.shrink();
+
+    final isMarked = session.attendanceMarked == true;
+    final isOpen = _isAttendanceWindowOpen(session);
+    final isTooLate = _isAttendanceTooLate(session);
+    final enabled = !isMarked && !_isBroadcastingAttendance && isOpen;
+
+    IconData icon;
+    String label;
+    List<Color>? gradientColors;
+    double opacity = 1.0;
+
+    if (isMarked) {
+      icon = Icons.verified;
+      label = 'Marked';
+      gradientColors = [
+        AppTheme.success,
+        AppTheme.success.withValues(alpha: 0.75),
+      ];
+    } else if (_isBroadcastingAttendance) {
+      icon = Icons.wifi_tethering;
+      label = '${_broadcastSecondsRemaining}s';
+      gradientColors = [AppTheme.primaryOrange, AppTheme.primaryCoral];
+    } else if (isTooLate) {
+      icon = Icons.timer_off;
+      label = 'Attend';
+      opacity = 0.55;
+    } else if (!isOpen) {
+      icon = Icons.schedule;
+      label = 'Attend';
+      opacity = 0.55;
+    } else {
+      icon = Icons.check_circle_outline;
+      label = 'Attend';
+      gradientColors = [AppTheme.primaryOrange, AppTheme.primaryCoral];
+    }
+
+    return Opacity(
+      opacity: opacity,
+      child: GradientButton(
+        text: label,
+        icon: icon,
+        gradientColors: gradientColors,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        borderRadius: 16,
+        onPressed: _isBroadcastingAttendance
+            ? null
+            : () {
+                if (enabled) {
+                  _markAttendance();
+                  return;
+                }
+
+                if (isMarked) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Attendance already marked ✅'),
+                      backgroundColor: AppTheme.success,
+                    ),
+                  );
+                  return;
+                }
+
+                if (isTooLate) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Too late to mark attendance'),
+                      backgroundColor: AppTheme.error,
+                    ),
+                  );
+                  return;
+                }
+
+                final pretty = _formatCompact(_attendanceOpensIn(session));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Attendance opens in $pretty'),
+                    backgroundColor: AppTheme.textSecondary,
+                  ),
+                );
+              },
+      ),
+    );
   }
 
   Color _getStatusColor() {

@@ -11,6 +11,8 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Max-Age": "86400",
 };
 
 const UUID_RE =
@@ -86,7 +88,7 @@ async function hmacSha256(secret: string, message: string): Promise<Uint8Array> 
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
@@ -109,9 +111,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    const secret = Deno.env.get("ATTENDANCE_HMAC_SECRET")?.trim();
+    const secret =
+      Deno.env.get("ATTENDANCE_HMAC_SECRET")?.trim() ||
+      // Fallback: keep the system working even if ATTENDANCE_HMAC_SECRET was
+      // not configured in the project. This key is already a high-entropy secret
+      // and never leaves the server.
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
+
     if (!secret) {
-      return new Response(JSON.stringify({ error: "Server misconfigured" }), {
+      return new Response(JSON.stringify({ error: "Server misconfigured", details: "Missing ATTENDANCE_HMAC_SECRET" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

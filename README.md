@@ -147,13 +147,17 @@ LiftCo supports a prototype attendance system using **iBeacon** broadcasting fro
 **Edge Functions**
 | Function | Method | JWT | Description |
 |----------|--------|-----|-------------|
-| `attendance-get-token` | POST | Yes | Return iBeacon payload (uuid + major/minor) for the current window |
+| `attendance-get-token` | POST | No\* | Return iBeacon payload (uuid + major/minor) for the current window |
 | `attendance-verify-scan` | POST | No* | Verify scan + mark attendance (requires `x-scanner-key`) |
+
+\* `attendance-get-token` is deployed with gateway JWT verification disabled (to avoid “Invalid JWT” gateway failures), but it still **requires** the app’s `Authorization: Bearer <access_token>` header and validates the user inside the function via `auth.getUser()`.
 
 \* `attendance-verify-scan` is protected by a scanner secret header so it can’t be called by normal clients.
 
 **Required Edge Function secrets**
-- `ATTENDANCE_HMAC_SECRET`: random secret used for HMAC token generation (keep private)
+- `ATTENDANCE_HMAC_SECRET`: random secret used for HMAC token generation (keep private).
+  - If not set, functions fall back to `SUPABASE_SERVICE_ROLE_KEY` as the HMAC secret so the prototype still works.
+  - Recommended: set `ATTENDANCE_HMAC_SECRET` explicitly so you can rotate it independently of the service role key.
 
 **Laptop scanner demo**
 - Program lives in `attendance_scanner/`.

@@ -32,6 +32,11 @@ class SupabaseService {
 
   SupabaseService(this._client);
 
+  String _truncateForLog(String input, {int max = 800}) {
+    if (input.length <= max) return input;
+    return '${input.substring(0, max)}…';
+  }
+
   Future<Session?> _refreshSessionLocked() async {
     if (_missingRefreshTokenSeenAt != null &&
         DateTime.now().difference(_missingRefreshTokenSeenAt!) <
@@ -182,16 +187,29 @@ class SupabaseService {
           throw const AuthException('Session expired. Please sign in again.');
         }
 
+        final ct = response.headers['content-type'];
         final data = decodedData;
+
+        String message;
         if (data is Map<String, dynamic>) {
-          final base = data['error']?.toString() ?? 'Request failed';
+          final base = data['error']?.toString() ??
+              data['message']?.toString() ??
+              'Request failed';
           final details = data['details']?.toString();
-          final message = (details != null && details.isNotEmpty)
+          message = (details != null && details.isNotEmpty)
               ? '$base ($details)'
               : base;
-          throw Exception(message);
+        } else if (data is String && data.trim().isNotEmpty) {
+          message = _truncateForLog(data.trim());
+        } else {
+          message = 'Request failed';
         }
-        throw Exception('Request failed');
+
+        throw Exception(
+          'Edge Function "$functionName" failed '
+          '(HTTP ${response.statusCode}${ct != null ? ', $ct' : ''}) '
+          'at $uri: $message',
+        );
       }
 
       final data = decodedData;
@@ -199,6 +217,9 @@ class SupabaseService {
       if (data is Map<String, dynamic>) return data;
       if (data is List) return {'data': data};
       return {'data': data};
+    } on http.ClientException catch (e) {
+      debugPrint('Error invoking $functionName (network): $e');
+      rethrow;
     } catch (e) {
       debugPrint('Error invoking $functionName: $e');
       rethrow;
@@ -297,7 +318,9 @@ class SupabaseService {
         'title': title,
         'session_type': sessionType,
         'description': description,
-        'start_time': startTime.toIso8601String(),
+        // Always send UTC with timezone info so Edge/DB don't reinterpret local
+        // wall-clock time as UTC.
+        'start_time': startTime.toUtc().toIso8601String(),
         'duration_minutes': durationMinutes,
         'max_capacity': maxCapacity,
         'intensity_level': intensityLevel,
