@@ -169,10 +169,21 @@ Deno.serve(async (req) => {
       (memberships ?? []).map((membership) => membership.session_id as string),
     );
 
+    const { data: attendanceRows } = await serviceClient
+      .from("session_attendance")
+      .select("session_id")
+      .eq("user_id", requester.id)
+      .in("session_id", sessionIds);
+
+    const attendedSessionIds = new Set(
+      (attendanceRows ?? []).map((row: any) => row.session_id as string),
+    );
+
     const sessions = visibleSessions
       .map((session) => {
         const isUserJoined = joinedSessionIds.has(session.id) || session.host_user_id === requester.id;
-        return { ...session, is_user_joined: isUserJoined };
+        const attendanceMarked = attendedSessionIds.has(session.id);
+        return { ...session, is_user_joined: isUserJoined, attendance_marked: attendanceMarked };
       })
       .filter((session) => (joinedOnly ? session.is_user_joined : true));
 

@@ -19,6 +19,9 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// Some older Flutter plugins do not declare an Android Gradle Plugin (AGP)
+// `namespace`, which is required on AGP 8+. Configure it here so builds don't
+// require patching files under ~/.pub-cache.
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

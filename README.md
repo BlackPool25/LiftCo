@@ -129,6 +129,65 @@ All backend operations are exposed through Supabase Edge Functions following RES
 - ✅ **Notifications**: Automatic push notifications to relevant members
 - ✅ **Rate Limit Resilience**: Handles 429 errors gracefully
 
+#### Attendance (BLE iBeacon Prototype)
+
+LiftCo supports a prototype attendance system using **iBeacon** broadcasting from the phone and passive scanning on a laptop.
+
+**How it works (high-level):**
+- User taps **Mark attendance** in Schedule only within **[-10 min, +15 min]** of session start.
+- App calls `attendance-get-token` → receives `(uuid=user_id, major/minor=token)` and broadcasts iBeacon for **30 seconds**.
+- Laptop scanner passively detects iBeacon frames, then calls `attendance-verify-scan`.
+- Edge Function verifies token using server time windows $T-1, T, T+1$ (30s chunks) and writes to `public.session_attendance`.
+- App listens to `session_attendance` realtime inserts and updates UI instantly.
+
+**Database**
+- Table: `public.session_attendance` (realtime enabled)
+- Uniqueness: one row per `(session_id, user_id)` (idempotent upsert)
+
+**Edge Functions**
+| Function | Method | JWT | Description |
+|----------|--------|-----|-------------|
+| `attendance-get-token` | POST | Yes | Return iBeacon payload (uuid + major/minor) for the current window |
+| `attendance-verify-scan` | POST | No* | Verify scan + mark attendance (requires `x-scanner-key`) |
+
+\* `attendance-verify-scan` is protected by a scanner secret header so it can’t be called by normal clients.
+
+**Required Edge Function secrets**
+- `ATTENDANCE_HMAC_SECRET`: random secret used for HMAC token generation (keep private)
+
+**Laptop scanner demo**
+- Program lives in `attendance_scanner/`.
+- Run:
+  - `python3 -m venv .venv && source .venv/bin/activate`
+  - `pip install -r attendance_scanner/requirements.txt`
+  - Option A (recommended, avoids shell history):
+    - `export SUPABASE_URL=https://<ref>.supabase.co`
+    - `export ATTENDANCE_GYM_ID=<gym_id>`
+    - `export ATTENDANCE_SCANNER_KEY=<ATTENDANCE_SCANNER_KEY>`
+    - `python3 attendance_scanner/scanner.py`
+  - Option B (flags):
+    - `python3 attendance_scanner/scanner.py --supabase-url https://<ref>.supabase.co --gym-id <gym_id> --scanner-key <ATTENDANCE_SCANNER_KEY>`
+  - Add `--no-ui` to disable the live dashboard.
+
+If you run the scanner without these values, it will prompt you interactively and explain where to get them.
+
+**Provision scanners (per gym)**
+
+Scanner credentials are stored in `public.attendance_scanners` (hashed keys). The verifier (`attendance-verify-scan`) only accepts scans from a scanner whose `(gym_id, scanner_id, key)` is registered and active.
+
+- Register a scanner key:
+  - Set admin env vars (keep private):
+    - `export SUPABASE_URL=https://<ref>.supabase.co`
+    - `export SUPABASE_SERVICE_ROLE_KEY=<service_role_key>`
+  - Run:
+    - `python3 attendance_scanner/manage_scanners.py add --gym-id <gym_id> --scanner-id <scanner_id>`
+- Revoke a scanner key:
+  - `python3 attendance_scanner/manage_scanners.py revoke --gym-id <gym_id>`
+
+**Notes**
+- The scanner does **not** need gym id in the BLE payload; it’s configured per-gym and sends `gym_id` to the verifier. The token is still bound to `gym_id` on the server to prevent cross-gym replay.
+- iOS requires Bluetooth + Location permission strings (already added in `ios/Runner/Info.plist`).
+
 #### Device & Notification Functions
 | Function | Method | Description |
 |----------|--------|-------------|

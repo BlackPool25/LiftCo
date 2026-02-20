@@ -23,6 +23,7 @@ class WorkoutSession extends Equatable {
   final Map<String, dynamic>? gym;
   final List<SessionMember>? members;
   final bool? isUserJoined;
+  final bool? attendanceMarked;
 
   const WorkoutSession({
     required this.id,
@@ -44,6 +45,7 @@ class WorkoutSession extends Equatable {
     this.gym,
     this.members,
     this.isUserJoined,
+    this.attendanceMarked,
   });
 
   factory WorkoutSession.fromJson(Map<String, dynamic> json) {
@@ -73,6 +75,7 @@ class WorkoutSession extends Equatable {
                 .toList()
           : null,
       isUserJoined: json['is_user_joined'] as bool?,
+      attendanceMarked: json['attendance_marked'] as bool?,
     );
   }
 
@@ -96,6 +99,7 @@ class WorkoutSession extends Equatable {
     Map<String, dynamic>? gym,
     List<SessionMember>? members,
     bool? isUserJoined,
+    bool? attendanceMarked,
   }) {
     return WorkoutSession(
       id: id ?? this.id,
@@ -117,6 +121,7 @@ class WorkoutSession extends Equatable {
       gym: gym ?? this.gym,
       members: members ?? this.members,
       isUserJoined: isUserJoined ?? this.isUserJoined,
+      attendanceMarked: attendanceMarked ?? this.attendanceMarked,
     );
   }
 
@@ -217,6 +222,7 @@ class WorkoutSession extends Equatable {
     gym,
     members,
     isUserJoined,
+    attendanceMarked,
   ];
 }
 

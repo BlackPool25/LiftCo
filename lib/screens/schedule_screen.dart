@@ -1,12 +1,16 @@
 // lib/screens/schedule_screen.dart
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../config/theme.dart';
 import '../models/workout_session.dart';
 import '../services/current_user_resolver.dart';
+import '../services/ibeacon_broadcaster.dart';
 import '../services/session_service.dart';
+import '../services/supabase_service.dart';
 import '../utils/chat_window.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_button.dart';
@@ -24,10 +28,14 @@ class ScheduleScreen extends StatefulWidget {
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
   late SessionService _sessionService;
+  final IBeaconBroadcaster _beaconBroadcaster = IBeaconBroadcaster();
   List<WorkoutSession> _sessions = [];
   bool _isLoading = true;
   String? _error;
   String? _currentAppUserId;
+
+  RealtimeChannel? _attendanceChannel;
+  String? _broadcastingSessionId;
 
   // Realtime subscription
   StreamSubscription<List<WorkoutSession>>? _sessionsSubscription;
@@ -48,12 +56,67 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     setState(() {
       _currentAppUserId = appUserId;
     });
+
+    if (appUserId != null) {
+      _subscribeToAttendance(appUserId);
+    }
   }
 
   @override
   void dispose() {
     _sessionsSubscription?.cancel();
+    if (_attendanceChannel != null) {
+      Supabase.instance.client.removeChannel(_attendanceChannel!);
+      _attendanceChannel = null;
+    }
     super.dispose();
+  }
+
+  void _subscribeToAttendance(String appUserId) {
+    // Single channel for all attendance inserts for this user.
+    _attendanceChannel ??= Supabase.instance.client.channel(
+      'attendance:$appUserId',
+    );
+
+    _attendanceChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'session_attendance',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: appUserId,
+          ),
+          callback: (payload) {
+            try {
+              final record = Map<String, dynamic>.from(payload.newRecord);
+              final sessionId = record['session_id'] as String?;
+              if (sessionId == null) return;
+
+              if (!mounted) return;
+              setState(() {
+                _sessions = _sessions
+                    .map(
+                      (s) => s.id == sessionId
+                          ? s.copyWith(attendanceMarked: true)
+                          : s,
+                    )
+                    .toList();
+              });
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Attendance marked ✅'),
+                  backgroundColor: AppTheme.success,
+                ),
+              );
+            } catch (_) {
+              // Ignore malformed realtime payloads.
+            }
+          },
+        )
+        .subscribe();
   }
 
   /// Subscribe only to user's joined sessions
@@ -551,6 +614,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     ),
                   ),
                   const Spacer(),
+                  if (_shouldShowAttendanceChip(session)) ...[
+                    _buildAttendanceChip(session),
+                    const SizedBox(width: 10),
+                  ],
                   _buildChatAccessChip(session, chatWindow),
                 ],
               ),
@@ -559,6 +626,150 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         ),
       ),
     ).animate().fadeIn(delay: (200 + index * 50).ms).slideY(begin: 0.1);
+  }
+
+  bool _shouldShowAttendanceChip(WorkoutSession session) {
+    if (session.attendanceMarked == true) return false;
+
+    final now = DateTime.now();
+    final opensAt = session.startTime.subtract(const Duration(minutes: 10));
+    final closesAt = session.startTime.add(const Duration(minutes: 15));
+
+    final inWindow = !now.isBefore(opensAt) && !now.isAfter(closesAt);
+    return inWindow;
+  }
+
+  Widget _buildAttendanceChip(WorkoutSession session) {
+    final isBusy = _broadcastingSessionId == session.id;
+
+    return GlassCard(
+      onTap: isBusy ? null : () => _markAttendance(session),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      borderRadius: 14,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.check_circle_outline,
+            color: isBusy ? AppTheme.textMuted : AppTheme.primaryOrange,
+            size: 14,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isBusy ? 'Broadcasting…' : 'Mark attendance',
+            style: TextStyle(
+              color: isBusy ? AppTheme.textMuted : AppTheme.textPrimary,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _markAttendance(WorkoutSession session) async {
+    if (_broadcastingSessionId != null) return;
+
+    setState(() {
+      _broadcastingSessionId = session.id;
+    });
+
+    try {
+      final api = SupabaseService(Supabase.instance.client);
+      final response = await api.post(
+        'attendance-get-token',
+        body: {'session_id': session.id},
+      );
+
+      final beacon = response['ibeacon'] as Map<String, dynamic>?;
+      if (beacon == null) {
+        throw Exception('Invalid token response');
+      }
+
+      final proximityUuid = beacon['proximity_uuid'] as String?;
+      final major = (beacon['major'] as num?)?.toInt();
+      final minor = (beacon['minor'] as num?)?.toInt();
+
+      if (proximityUuid == null || major == null || minor == null) {
+        throw Exception('Invalid beacon data');
+      }
+
+      await _ensureBeaconPermissions();
+      final support = await _beaconBroadcaster.getSupport();
+      if (!support.isSupported) {
+        throw Exception(support.details ?? 'Beacon broadcasting not supported');
+      }
+      if (!support.bluetoothOn) {
+        throw Exception('Bluetooth is off');
+      }
+      if (!support.advertisingAvailable) {
+        throw Exception('BLE advertising unavailable on this device');
+      }
+
+      await _beaconBroadcaster.start(
+        uuid: proximityUuid,
+        major: major,
+        minor: minor,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Broadcasting attendance token…'),
+            backgroundColor: AppTheme.primaryOrange,
+          ),
+        );
+      }
+
+      await Future.delayed(const Duration(seconds: 30));
+      await _beaconBroadcaster.stop();
+    } catch (e) {
+      try {
+        await _beaconBroadcaster.stop();
+      } catch (_) {
+        // ignore
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Attendance failed: $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _broadcastingSessionId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _ensureBeaconPermissions() async {
+    // iOS: iBeacon APIs require location permission.
+    // Android: Android 12+ requires explicit Bluetooth runtime permissions.
+    final permissions = <Permission>[Permission.locationWhenInUse];
+
+    if (Platform.isAndroid) {
+      permissions.addAll([
+        Permission.bluetooth,
+        Permission.bluetoothAdvertise,
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+      ]);
+    }
+
+    for (final p in permissions) {
+      final status = await p.status;
+      if (status.isGranted) continue;
+      final requested = await p.request();
+      if (!requested.isGranted) {
+        throw Exception('Permission denied: ${p.toString()}');
+      }
+    }
   }
 
   Widget _buildChatAccessChip(WorkoutSession session, ChatWindowInfo window) {

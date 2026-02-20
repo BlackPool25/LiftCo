@@ -154,6 +154,17 @@ Deno.serve(async (req) => {
 
     const isUserJoined = !!myMembership || session.host_user_id === requester.id;
 
+    let attendanceMarked = false;
+    if (isUserJoined) {
+      const { data: attendanceRow } = await serviceClient
+        .from("session_attendance")
+        .select("id")
+        .eq("session_id", sessionId)
+        .eq("user_id", requester.id)
+        .maybeSingle();
+      attendanceMarked = !!attendanceRow;
+    }
+
     // Public view policy:
     // - Non-members can only view sessions that are upcoming and have not started.
     // - Members/host can also view sessions while they are in progress.
@@ -198,7 +209,12 @@ Deno.serve(async (req) => {
       members = joinedMembers ?? [];
     }
 
-    const payload = { ...session, members, is_user_joined: isUserJoined };
+    const payload = {
+      ...session,
+      members,
+      is_user_joined: isUserJoined,
+      attendance_marked: attendanceMarked,
+    };
 
     return new Response(JSON.stringify({ session: payload }), {
       status: 200,
