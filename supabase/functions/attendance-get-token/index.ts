@@ -211,6 +211,7 @@ Deno.serve(async (req) => {
     const nowSeconds = Math.floor(now.getTime() / 1000);
     const windowIndex = Math.floor(nowSeconds / 30);
 
+
     // Bind token to (user_id, gym_id, windowIndex) to prevent cross-gym replay.
     const message = `${requester.id}|${String(session.gym_id)}|${String(windowIndex)}`;
     const digest = await hmacSha256(secret, message);

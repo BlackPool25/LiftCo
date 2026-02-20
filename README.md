@@ -192,6 +192,12 @@ Scanner credentials are stored in `public.attendance_scanners` (hashed keys). Th
 - The scanner does **not** need gym id in the BLE payload; it’s configured per-gym and sends `gym_id` to the verifier. The token is still bound to `gym_id` on the server to prevent cross-gym replay.
 - iOS requires Bluetooth + Location permission strings (already added in `ios/Runner/Info.plist`).
 
+**Troubleshooting: scanner not seeing broadcasts**
+- Ensure your phone actually started advertising. The app will now surface native advertise failures (e.g. "too many advertisers", "feature unsupported").
+- Move the phone closer to the laptop and temporarily lower the threshold: `export ATTENDANCE_MIN_RSSI=-95`.
+- Run the scanner with debug output: `python3 attendance_scanner/scanner.py --debug-adv`.
+- By default the scanner will attempt to parse iBeacon payloads from any manufacturer company id (some stacks don’t report Apple 0x004C consistently). Use `--strict-apple-id` to force Apple-only.
+
 #### Device & Notification Functions
 | Function | Method | Description |
 |----------|--------|-------------|

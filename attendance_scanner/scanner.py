@@ -77,6 +77,8 @@ class AttendanceGateway:
         self.last_seen: Optional[BeaconFrame] = None
         self.last_ok_at: Optional[float] = None
         self.last_err_at: Optional[float] = None
+        self.last_ok: Optional[str] = None
+        self.last_err: Optional[str] = None
 
     def should_send(self, frame: BeaconFrame) -> bool:
         self.frames_seen += 1
@@ -113,7 +115,8 @@ class AttendanceGateway:
         try:
             res = requests.post(endpoint, headers=headers, data=json.dumps(payload), timeout=6)
         except Exception as e:
-            print(f"[verify] network error: {e}")
+            self.last_err_at = time.time()
+            self.last_err = f"network error: {e}"
             return
 
         if res.status_code == 200:
@@ -123,7 +126,7 @@ class AttendanceGateway:
                 data = res.json()
             except Exception:
                 data = res.text
-            print(f"[OK] {frame.user_id} token={frame.token_u32} rssi={frame.rssi} -> {data}")
+            self.last_ok = str(data)
             return
 
         self.requests_err += 1
@@ -132,9 +135,14 @@ class AttendanceGateway:
             err = res.json()
         except Exception:
             err = res.text
-        print(
-            f"[ERR] status={res.status_code} {frame.user_id} token={frame.token_u32} rssi={frame.rssi} -> {err}"
-        )
+
+        if res.status_code == 401:
+            self.last_err = (
+                "Unauthorized (401). Verify ATTENDANCE_SCANNER_KEY and that your scanner is registered as active "
+                f"for gym_id={self.gym_id} and scanner_id={self.scanner_id}."
+            )
+        else:
+            self.last_err = f"status={res.status_code} -> {err}"
 
 
 async def main() -> None:
@@ -162,6 +170,21 @@ async def main() -> None:
         default=int(os.environ.get("ATTENDANCE_MIN_RSSI", "-85")),
         type=int,
         help="Ignore weak signals (default: -85). Env: ATTENDANCE_MIN_RSSI",
+    )
+    parser.add_argument(
+        "--strict-apple-id",
+        action="store_true",
+        help="Only accept iBeacon frames where company_id == 0x004C (Apple). Default: accept any company_id if payload matches iBeacon prefix.",
+    )
+    parser.add_argument(
+        "--debug-adv",
+        action="store_true",
+        help="Print manufacturer data seen (for debugging when scanner doesn't detect beacons).",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print every verify result (OK/ERR). Default: quiet when live UI is enabled.",
     )
     parser.add_argument("--no-ui", action="store_true", help="Disable live UI dashboard")
     args = parser.parse_args()
@@ -317,10 +340,37 @@ async def main() -> None:
 
     def detection_callback(device, adv_data):
         md = adv_data.manufacturer_data or {}
-        if APPLE_COMPANY_ID not in md:
+        if not md:
             return
 
-        frame = parse_ibeacon(md[APPLE_COMPANY_ID], adv_data.rssi)
+        items = []
+        if args.strict_apple_id:
+            if APPLE_COMPANY_ID in md:
+                items = [(APPLE_COMPANY_ID, md[APPLE_COMPANY_ID])]
+        else:
+            items = list(md.items())
+
+        if not items:
+            return
+
+        frame = None
+        for company_id, payload in items:
+            try:
+                payload_bytes = bytes(payload)
+            except Exception:
+                payload_bytes = payload
+
+            if args.debug_adv:
+                head = payload_bytes[:8].hex()
+                console.print(
+                    f"[dim]ADV[/dim] {device.address} rssi={adv_data.rssi} company=0x{company_id:04x} bytes={len(payload_bytes)} head={head}"
+                )
+
+            candidate = parse_ibeacon(payload_bytes, adv_data.rssi)
+            if candidate is not None:
+                frame = candidate
+                break
+
         if frame is None:
             return
 
@@ -329,7 +379,36 @@ async def main() -> None:
         if not gateway.should_send(frame):
             return
 
-        gateway.verify(frame)
+        try:
+            verify_queue.put_nowait(frame)
+        except asyncio.QueueFull:
+            return
+
+    # Don't block Bleak's callback/event loop on network I/O.
+    verify_queue: asyncio.Queue[BeaconFrame] = asyncio.Queue(maxsize=256)
+
+    async def verify_worker() -> None:
+        while True:
+            frame = await verify_queue.get()
+            try:
+                before_ok = gateway.requests_ok
+                before_err = gateway.requests_err
+                await asyncio.to_thread(gateway.verify, frame)
+
+                should_print = args.no_ui or args.verbose
+                if should_print:
+                    if gateway.requests_ok != before_ok:
+                        console.print(
+                            f"[green][OK][/green] {frame.user_id} token={frame.token_u32} rssi={frame.rssi} -> {gateway.last_ok}"
+                        )
+                    elif gateway.requests_err != before_err:
+                        console.print(
+                            f"[red][ERR][/red] {frame.user_id} token={frame.token_u32} rssi={frame.rssi} -> {gateway.last_err}"
+                        )
+            finally:
+                verify_queue.task_done()
+
+    worker_task = asyncio.create_task(verify_worker())
 
     scanner = BleakScanner(detection_callback=detection_callback)
 
@@ -350,17 +429,22 @@ async def main() -> None:
             t.add_row("Last OK", time.strftime('%H:%M:%S', time.localtime(gateway.last_ok_at)))
         if gateway.last_err_at:
             t.add_row("Last ERR", time.strftime('%H:%M:%S', time.localtime(gateway.last_err_at)))
+        if gateway.last_err:
+            t.add_row("Last error", gateway.last_err)
         return t
 
     console.print("Scanning for iBeacon frames… (Ctrl+C to stop)")
-    async with scanner:
-        if args.no_ui:
-            while True:
-                await asyncio.sleep(1)
-        else:
-            with Live(render_table(), console=console, refresh_per_second=4):
+    try:
+        async with scanner:
+            if args.no_ui:
                 while True:
-                    await asyncio.sleep(0.25)
+                    await asyncio.sleep(1)
+            else:
+                with Live(render_table(), console=console, refresh_per_second=4):
+                    while True:
+                        await asyncio.sleep(0.25)
+    finally:
+        worker_task.cancel()
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ import CoreLocation
   private var peripheralManager: CBPeripheralManager?
   private var pendingStart: (uuid: UUID, major: UInt16, minor: UInt16, txPower: Int)?
   private var isAdvertising: Bool = false
+  private var pendingStartResult: FlutterResult?
 
   override func application(
     _ application: UIApplication,
@@ -37,8 +38,10 @@ import CoreLocation
           }
 
           let txPower = (args["tx_power"] as? Int) ?? -59
+
+          // Complete the result only after CoreBluetooth confirms start.
+          self.pendingStartResult = result
           self.startAdvertising(uuid: uuid, major: major, minor: minor, txPower: txPower)
-          result(nil)
 
         case "stop":
           self.stopAdvertising()
@@ -145,5 +148,17 @@ extension AppDelegate: CBPeripheralManagerDelegate {
       // Ensure we don't claim to be advertising if BT is off.
       isAdvertising = false
     }
+  }
+
+  func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
+    guard let result = pendingStartResult else { return }
+    pendingStartResult = nil
+
+    if let error = error {
+      result(FlutterError(code: "advertise_failed", message: error.localizedDescription, details: nil))
+      return
+    }
+
+    result(nil)
   }
 }

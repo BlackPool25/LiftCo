@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../config/theme.dart';
 import '../models/workout_session.dart';
+import '../services/attendance_broadcast_coordinator.dart';
 import '../services/current_user_resolver.dart';
 import '../services/ibeacon_broadcaster.dart';
 import '../services/session_service.dart';
@@ -29,6 +30,8 @@ class ScheduleScreen extends StatefulWidget {
 class _ScheduleScreenState extends State<ScheduleScreen> {
   late SessionService _sessionService;
   final IBeaconBroadcaster _beaconBroadcaster = IBeaconBroadcaster();
+  final AttendanceBroadcastCoordinator _broadcastCoordinator =
+      AttendanceBroadcastCoordinator.instance;
   List<WorkoutSession> _sessions = [];
   bool _isLoading = true;
   String? _error;
@@ -37,7 +40,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   RealtimeChannel? _attendanceChannel;
   String? _broadcastingSessionId;
   int _broadcastSecondsRemaining = 0;
-  Timer? _broadcastTimer;
+  VoidCallback? _broadcastListener;
 
   // Realtime subscription
   StreamSubscription<List<WorkoutSession>>? _sessionsSubscription;
@@ -46,6 +49,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   void initState() {
     super.initState();
     _sessionService = SessionService(Supabase.instance.client);
+    _broadcastListener = _onBroadcastStateChanged;
+    _broadcastCoordinator.notifier.addListener(_broadcastListener!);
+    _syncBroadcastState(_broadcastCoordinator.notifier.value);
     _loadCurrentAppUserId();
     _subscribeToUserSessions();
   }
@@ -67,12 +73,27 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   @override
   void dispose() {
     _sessionsSubscription?.cancel();
-    _broadcastTimer?.cancel();
+    if (_broadcastListener != null) {
+      _broadcastCoordinator.notifier.removeListener(_broadcastListener!);
+    }
     if (_attendanceChannel != null) {
       Supabase.instance.client.removeChannel(_attendanceChannel!);
       _attendanceChannel = null;
     }
     super.dispose();
+  }
+
+  void _onBroadcastStateChanged() {
+    if (!mounted) return;
+    _syncBroadcastState(_broadcastCoordinator.notifier.value);
+  }
+
+  void _syncBroadcastState(AttendanceBroadcastState state) {
+    setState(() {
+      _broadcastingSessionId = state.isBroadcasting ? state.sessionId : null;
+      _broadcastSecondsRemaining =
+          state.isBroadcasting ? state.secondsRemaining : 0;
+    });
   }
 
   void _subscribeToAttendance(String appUserId) {
@@ -753,7 +774,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 
   Future<void> _markAttendance(WorkoutSession session) async {
-    if (_broadcastingSessionId != null) return;
+    if (_broadcastCoordinator.notifier.value.isBroadcasting) return;
 
     // UI-side guard so we can show a clean message without a network request.
     if (session.attendanceMarked == true) {
@@ -801,30 +822,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       throw Exception('BLE advertising unavailable on this device');
     }
 
-    setState(() {
-      _broadcastingSessionId = session.id;
-      _broadcastSecondsRemaining = 30;
-    });
-
-    _broadcastTimer?.cancel();
-    _broadcastTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
-      if (_broadcastingSessionId != session.id) {
-        timer.cancel();
-        return;
-      }
-      if (_broadcastSecondsRemaining <= 1) {
-        setState(() {
-          _broadcastSecondsRemaining = 0;
-        });
-        timer.cancel();
-        return;
-      }
-      setState(() {
-        _broadcastSecondsRemaining -= 1;
-      });
-    });
-
     try {
       final api = SupabaseService(Supabase.instance.client);
       final response = await api.post(
@@ -854,6 +851,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         throw Exception('Invalid beacon data');
       }
 
+      const duration = Duration(seconds: 30);
+      _broadcastCoordinator.start(sessionId: session.id, duration: duration);
+
       await _beaconBroadcaster.start(
         uuid: proximityUuid,
         major: major,
@@ -869,7 +869,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         );
       }
 
-      await Future.delayed(const Duration(seconds: 30));
+      await Future.delayed(duration);
       await _beaconBroadcaster.stop();
     } catch (e) {
       try {
@@ -877,6 +877,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       } catch (_) {
         // ignore
       }
+
+      _broadcastCoordinator.stop(sessionId: session.id);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -887,13 +889,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _broadcastingSessionId = null;
-          _broadcastSecondsRemaining = 0;
-        });
-      }
-      _broadcastTimer?.cancel();
+      _broadcastCoordinator.stop(sessionId: session.id);
     }
   }
 

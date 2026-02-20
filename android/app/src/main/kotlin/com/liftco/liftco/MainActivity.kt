@@ -40,8 +40,7 @@ class MainActivity : FlutterActivity() {
 					}
 
 					try {
-						startAdvertising(uuidStr, major, minor, txPower)
-						result.success(null)
+						startAdvertising(uuidStr, major, minor, txPower, result)
 					} catch (e: SecurityException) {
 						result.error("no_permission", e.message, null)
 					} catch (e: Exception) {
@@ -86,7 +85,7 @@ class MainActivity : FlutterActivity() {
 		)
 	}
 
-	private fun startAdvertising(uuidStr: String, major: Int, minor: Int, txPower: Int) {
+	private fun startAdvertising(uuidStr: String, major: Int, minor: Int, txPower: Int, result: MethodChannel.Result) {
 		val mgr = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
 		val adapter: BluetoothAdapter = mgr.adapter ?: throw IllegalStateException("Bluetooth adapter not found")
 		if (!adapter.isEnabled) throw IllegalStateException("Bluetooth is off")
@@ -128,9 +127,30 @@ class MainActivity : FlutterActivity() {
 			.build()
 
 		val callback = object : AdvertiseCallback() {
+			override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+				super.onStartSuccess(settingsInEffect)
+				runOnUiThread {
+					result.success(null)
+				}
+			}
+
 			override fun onStartFailure(errorCode: Int) {
 				super.onStartFailure(errorCode)
-				// Keep callback so we can stop, but nothing else to do here.
+				val reason = when (errorCode) {
+					ADVERTISE_FAILED_ALREADY_STARTED -> "already started"
+					ADVERTISE_FAILED_DATA_TOO_LARGE -> "data too large"
+					ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "feature unsupported"
+					ADVERTISE_FAILED_INTERNAL_ERROR -> "internal error"
+					ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "too many advertisers"
+					else -> "unknown"
+				}
+				runOnUiThread {
+					result.error(
+						"advertise_failed",
+						"BLE advertise failed ($errorCode): $reason",
+						errorCode,
+					)
+				}
 			}
 		}
 
